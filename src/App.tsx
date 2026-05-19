@@ -574,7 +574,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Checking Aiven..." : "Sign in"}
+                {submitting ? "Checking" : "Sign in"}
               </PrimaryButton>
             </form>
           ) : (
@@ -630,7 +630,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Saving to Aiven..." : "Create customer account"}
+                {submitting ? "Saving..." : "Create customer account"}
               </PrimaryButton>
             </form>
           )}
@@ -740,7 +740,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onAddCustomer(customerForm);
     setSubmitting(false);
-    setMessage(result ?? "Customer account saved to Aiven.");
+    setMessage(result ?? "Customer account saved.");
     if (!result) {
       setCustomerForm({ name: "", email: "", phone: "", password: "" });
     }
@@ -751,7 +751,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onAddMachine(machineForm);
     setSubmitting(false);
-    setMessage(result ?? "Machine saved to Aiven.");
+    setMessage(result ?? "Machine saved.");
     if (!result) {
       setMachineForm({ name: "", type: "Washer", capacityKg: "8", status: "Available", note: "" });
     }
@@ -762,7 +762,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onPriceChange(Number(priceInput));
     setSubmitting(false);
-    setMessage(result ?? "Price per kilo updated in Aiven.");
+    setMessage(result ?? "Price per kilo updated.");
   }
 
   return (
@@ -773,8 +773,7 @@ function AdminDashboard({
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Admin Workspace</p>
             <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Washmate control room</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-              Every table, count, order, customer, machine, and price is fetched from the Express API connected to Aiven
-              MySQL. No sample data is injected in the frontend.
+             
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">
@@ -857,7 +856,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Create customer in Aiven
+                  Create customer 
                 </PrimaryButton>
               </div>
             </form>
@@ -975,7 +974,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Save machine to Aiven
+                  Save machine to 
                 </PrimaryButton>
               </div>
             </form>
@@ -986,7 +985,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
             <form onSubmit={submitPrice} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Set peso price per kilo</h3>
-              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 in Aiven.</p>
+              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 .</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Price per kilo in PHP</FieldLabel>
@@ -1271,7 +1270,7 @@ function CustomerDashboard({
     setSubmitting(true);
     const result = await onCreateOrder(laundryForm);
     setSubmitting(false);
-    setMessage(result ?? "Laundry order saved to Aiven. Admin can now mark it as washing.");
+    setMessage(result ?? "Laundry order saved. Admin can now mark it as washing.");
     if (!result) {
       setLaundryForm({ kilograms: "", paymentMethod: "Cash" });
     }
@@ -1284,9 +1283,7 @@ function CustomerDashboard({
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Customer Portal</p>
             <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Book and track laundry</h2>
-            <p className="mt-3 max-w-3xl text-slate-600">
-              Price, orders, and status are loaded from the Aiven-backed API. Refresh to re-query the database.
-            </p>
+
           </div>
           <p className="text-sm font-semibold text-slate-600">Current price: {formatPeso(pricePerKilo)} per kg</p>
         </div>
@@ -1350,7 +1347,7 @@ function CustomerDashboard({
                   </SelectInput>
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  {submitting ? "Saving order..." : "Submit order to Aiven"}
+                  {submitting ? "Saving order..." : "Submit order to Washmate"}
                 </PrimaryButton>
               </div>
             </form>
@@ -1420,7 +1417,7 @@ function CustomerDashboard({
         {activeTab === "rates" ? (
           <section className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
             <h3 className="text-xl font-black">Customer price list</h3>
-            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo in Aiven.</p>
+            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 3, 5, 10].map((kilo) => (
                 <div key={kilo} className="rounded-3xl bg-slate-50 p-5">
@@ -1443,7 +1440,7 @@ function LoadingScreen() {
         <div className="mx-auto mb-5 flex justify-center">
           <LogoMark />
         </div>
-        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting to Aiven</p>
+        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting</p>
         <h1 className="mt-3 text-4xl font-black tracking-tight">Loading Washmate records</h1>
         <p className="mt-3 text-slate-300">Requesting /api/bootstrap from the Express server.</p>
       </div>
