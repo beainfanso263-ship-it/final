@@ -27,8 +27,8 @@ type AppUser = {
   role: Role;
   name: string;
   email: string;
+  username?: string;
   phone: string;
-  password: string;
   createdAt: string;
 };
 
@@ -40,7 +40,7 @@ type Order = {
   ratePerKilo: number;
   total: number;
   paymentMethod: "Cash" | "GCash" | "Card";
-  paymentStatus: "Paid" | "Pay on pickup";
+  paymentStatus: "Paid" | "Pay on pickup" | "Refunded";
   stage: OrderStage;
   status: OrderStatus;
   machine: string;
@@ -54,6 +54,13 @@ type Machine = {
   capacityKg: number;
   status: MachineStatus;
   note: string;
+};
+
+type BootstrapData = {
+  users: AppUser[];
+  orders: Order[];
+  machines: Machine[];
+  pricePerKilo: number;
 };
 
 type CustomerForm = {
@@ -76,144 +83,38 @@ type LaundryForm = {
   paymentMethod: "Cash" | "GCash" | "Card";
 };
 
-const USERS_KEY = "washmate-users";
-const ORDERS_KEY = "washmate-orders";
-const MACHINES_KEY = "washmate-machines";
-const PRICE_KEY = "washmate-price-per-kilo";
-const SESSION_KEY = "washmate-session";
+type LoginResponse = {
+  success: boolean;
+  user: AppUser;
+  message?: string;
+};
 
-const DEFAULT_PRICE_PER_KILO = 75;
+type RegisterResponse = {
+  success: boolean;
+  user: AppUser;
+  message?: string;
+};
 
-const seedUsers: AppUser[] = [
-  {
-    id: "admin-1",
-    role: "admin",
-    name: "Washmate Admin",
-    email: "admin@washmate.ph",
-    phone: "0917 000 0000",
-    password: "admin123",
-    createdAt: "2026-01-05T08:00:00.000Z",
-  },
-  {
-    id: "cust-1",
-    role: "customer",
-    name: "Maria Santos",
-    email: "maria@washmate.ph",
-    phone: "0917 111 2222",
-    password: "wash123",
-    createdAt: "2026-01-07T08:00:00.000Z",
-  },
-  {
-    id: "cust-2",
-    role: "customer",
-    name: "Juan Dela Cruz",
-    email: "juan@washmate.ph",
-    phone: "0918 333 4444",
-    password: "wash123",
-    createdAt: "2026-01-09T08:00:00.000Z",
-  },
-];
+type OrderResponse = {
+  success: boolean;
+  order: Order;
+  message?: string;
+};
 
-const seedOrders: Order[] = [
-  {
-    id: "WM-1001",
-    customerId: "cust-1",
-    customerName: "Maria Santos",
-    kilograms: 5.5,
-    ratePerKilo: 75,
-    total: 412.5,
-    paymentMethod: "GCash",
-    paymentStatus: "Paid",
-    stage: "Washing",
-    status: "Running",
-    machine: "Washer 02",
-    createdAt: "2026-02-10T09:20:00.000Z",
-  },
-  {
-    id: "WM-1002",
-    customerId: "cust-2",
-    customerName: "Juan Dela Cruz",
-    kilograms: 3,
-    ratePerKilo: 75,
-    total: 225,
-    paymentMethod: "Cash",
-    paymentStatus: "Pay on pickup",
-    stage: "Received",
-    status: "Pending",
-    machine: "Not assigned",
-    createdAt: "2026-02-10T10:10:00.000Z",
-  },
-  {
-    id: "WM-1003",
-    customerId: "cust-1",
-    customerName: "Maria Santos",
-    kilograms: 4.25,
-    ratePerKilo: 75,
-    total: 318.75,
-    paymentMethod: "Card",
-    paymentStatus: "Paid",
-    stage: "Ready for Pickup",
-    status: "Ready",
-    machine: "Pickup shelf",
-    createdAt: "2026-02-09T14:45:00.000Z",
-  },
-];
-
-const seedMachines: Machine[] = [
-  {
-    id: "machine-1",
-    name: "Washer 01",
-    type: "Washer",
-    capacityKg: 8,
-    status: "Available",
-    note: "Ready for the next batch",
-  },
-  {
-    id: "machine-2",
-    name: "Washer 02",
-    type: "Washer",
-    capacityKg: 10,
-    status: "In Use",
-    note: "Assigned to order WM-1001",
-  },
-  {
-    id: "machine-3",
-    name: "Dryer 01",
-    type: "Dryer",
-    capacityKg: 9,
-    status: "Available",
-    note: "Lint filter cleaned",
-  },
-  {
-    id: "machine-4",
-    name: "Dryer 02",
-    type: "Dryer",
-    capacityKg: 9,
-    status: "Maintenance",
-    note: "Technician check scheduled",
-  },
-  {
-    id: "machine-5",
-    name: "Folding Area",
-    type: "Folding Station",
-    capacityKg: 20,
-    status: "Available",
-    note: "Counter sanitized",
-  },
-];
+const API_BASE_URL = ((import.meta.env.VITE_API_BASE_URL as string | undefined) || "").replace(/\/$/, "");
 
 const statusActions: Array<{ label: string; stage: OrderStage; status: OrderStatus; description: string }> = [
   {
     label: "Mark as washing",
     stage: "Washing",
     status: "Running",
-    description: "Laundry is loaded into a washer.",
+    description: "Laundry is loaded into a washer. Customer sees Running.",
   },
   {
     label: "Mark as drying",
     stage: "Drying",
     status: "Running",
-    description: "Laundry is transferred to a dryer.",
+    description: "Laundry is transferred to a dryer. Customer still sees Running.",
   },
   {
     label: "Mark as folding",
@@ -242,46 +143,107 @@ const statusActions: Array<{ label: string; stage: OrderStage; status: OrderStat
 ];
 
 const stageOrder: OrderStage[] = ["Received", "Washing", "Drying", "Folding", "Ready for Pickup", "Claimed"];
-
 const machineStatuses: MachineStatus[] = ["Available", "In Use", "Maintenance", "Cleaning", "Out of Service"];
 const machineTypes: MachineType[] = ["Washer", "Dryer", "Folding Station"];
 
-function loadStored<T>(key: string, fallback: T): T {
-  if (typeof window === "undefined") {
-    return fallback;
+class ApiError extends Error {
+  method: string;
+  status: number;
+  traceId: string;
+  url: string;
+
+  constructor(message: string, details: { method: string; status: number; traceId: string; url: string }) {
+    super(message);
+    this.name = "ApiError";
+    this.method = details.method;
+    this.status = details.status;
+    this.traceId = details.traceId;
+    this.url = details.url;
+  }
+}
+
+function makeTraceId() {
+  return `web-${Date.now().toString(36)}-${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const method = options.method || "GET";
+  const traceId = makeTraceId();
+  const url = `${API_BASE_URL}${path}`;
+  const headers = new Headers(options.headers);
+
+  headers.set("Accept", "application/json");
+  headers.set("X-Trace-Id", traceId);
+  if (options.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
   }
 
   try {
-    const stored = window.localStorage.getItem(key);
-    return stored ? (JSON.parse(stored) as T) : fallback;
+    const response = await fetch(url, { ...options, method, headers });
+    const responseTraceId = response.headers.get("X-Trace-Id") || traceId;
+    const text = await response.text();
+    const payload = text ? safeJsonParse(text) : null;
+
+    if (!response.ok) {
+      const message =
+        payload && typeof payload === "object" && "message" in payload
+          ? String(payload.message)
+          : payload && typeof payload === "object" && "error" in payload
+            ? String(payload.error)
+            : `Request failed with status ${response.status}`;
+
+      throw new ApiError(message, { method, status: response.status, traceId: responseTraceId, url });
+    }
+
+    return payload as T;
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error;
+    }
+
+    throw new ApiError(error instanceof Error ? error.message : "Network request failed", {
+      method,
+      status: 0,
+      traceId,
+      url,
+    });
+  }
+}
+
+function safeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value);
   } catch {
-    return fallback;
+    return { error: value.slice(0, 240) };
   }
 }
 
-function saveStored<T>(key: string, value: T) {
-  if (typeof window !== "undefined") {
-    window.localStorage.setItem(key, JSON.stringify(value));
+function getErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    return `${error.message} [${error.method} ${error.url}, status ${error.status || "network"}, trace ${error.traceId}]`;
   }
-}
 
-function makeId(prefix: string) {
-  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${Math.floor(Math.random() * 90 + 10)}`;
+  return error instanceof Error ? error.message : "Unexpected error";
 }
 
 function formatPeso(amount: number) {
-  return `PHP ${amount.toLocaleString("en-PH", {
+  return `PHP ${Number(amount || 0).toLocaleString("en-PH", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
 }
 
 function formatDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "No date";
+  }
+
   return new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function roundMoney(value: number) {
@@ -316,20 +278,6 @@ function getNextActions(order: Order) {
   return [];
 }
 
-function releaseMachine(machines: Machine[], machineName: string) {
-  return machines.map((machine) => {
-    if (machine.name !== machineName || machine.status !== "In Use") {
-      return machine;
-    }
-
-    return {
-      ...machine,
-      status: "Available" as MachineStatus,
-      note: "Ready after order transfer",
-    };
-  });
-}
-
 function LogoMark({ dark = false }: { dark?: boolean }) {
   return (
     <div
@@ -356,31 +304,6 @@ function LogoMark({ dark = false }: { dark?: boolean }) {
 
 function FieldLabel({ children }: { children: ReactNode }) {
   return <label className="text-sm font-semibold text-slate-700">{children}</label>;
-}
-
-function StatusPill({ status }: { status: OrderStatus | MachineStatus }) {
-  const styles: Record<string, string> = {
-    Pending: "bg-amber-100 text-amber-800 ring-amber-200",
-    Running: "bg-sky-100 text-sky-800 ring-sky-200",
-    Ready: "bg-emerald-100 text-emerald-800 ring-emerald-200",
-    Completed: "bg-slate-200 text-slate-800 ring-slate-300",
-    Cancelled: "bg-rose-100 text-rose-800 ring-rose-200",
-    Available: "bg-emerald-100 text-emerald-800 ring-emerald-200",
-    "In Use": "bg-sky-100 text-sky-800 ring-sky-200",
-    Maintenance: "bg-orange-100 text-orange-800 ring-orange-200",
-    Cleaning: "bg-violet-100 text-violet-800 ring-violet-200",
-    "Out of Service": "bg-rose-100 text-rose-800 ring-rose-200",
-  };
-
-  return (
-    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${styles[status]}`}>
-      {status}
-    </span>
-  );
-}
-
-function StagePill({ stage }: { stage: OrderStage }) {
-  return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{stage}</span>;
 }
 
 function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
@@ -420,61 +343,144 @@ function SecondaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
-      className={`rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:-translate-y-0.5 hover:border-sky-300 hover:text-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-100 ${
+      className={`rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:-translate-y-0.5 hover:border-sky-300 hover:text-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-100 disabled:cursor-not-allowed disabled:opacity-50 ${
         props.className ?? ""
       }`}
     />
   );
 }
 
+function StatusPill({ status }: { status: OrderStatus | MachineStatus }) {
+  const styles: Record<string, string> = {
+    Pending: "bg-amber-100 text-amber-800 ring-amber-200",
+    Running: "bg-sky-100 text-sky-800 ring-sky-200",
+    Ready: "bg-emerald-100 text-emerald-800 ring-emerald-200",
+    Completed: "bg-slate-200 text-slate-800 ring-slate-300",
+    Cancelled: "bg-rose-100 text-rose-800 ring-rose-200",
+    Available: "bg-emerald-100 text-emerald-800 ring-emerald-200",
+    "In Use": "bg-sky-100 text-sky-800 ring-sky-200",
+    Maintenance: "bg-orange-100 text-orange-800 ring-orange-200",
+    Cleaning: "bg-violet-100 text-violet-800 ring-violet-200",
+    "Out of Service": "bg-rose-100 text-rose-800 ring-rose-200",
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${styles[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+function StagePill({ stage }: { stage: OrderStage }) {
+  return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{stage}</span>;
+}
+
+function EmptyState({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-8 text-center">
+      <h3 className="text-xl font-black text-slate-900">{title}</h3>
+      <p className="mt-2 text-sm text-slate-500">{text}</p>
+    </div>
+  );
+}
+
+function ApiAlert({ error, onRefresh }: { error: string; onRefresh?: () => void }) {
+  if (!error) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection or database error</p>
+      <p className="mt-2 break-words text-sm font-semibold">{error}</p>
+      {onRefresh ? (
+        <button type="button" onClick={onRefresh} className="mt-4 text-sm font-black text-rose-900 underline">
+          Retry API request
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ConnectionPanel({
+  lastSync,
+  error,
+  onRefresh,
+  loading,
+}: {
+  lastSync: string | null;
+  error: string;
+  onRefresh: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">Aiven data source</p>
+          <p className="mt-2 text-sm text-slate-600">
+            API base: <span className="font-bold text-slate-900">{API_BASE_URL || "same origin"}</span>
+          </p>
+          <p className="text-sm text-slate-600">
+            Last sync: <span className="font-bold text-slate-900">{lastSync ? new Date(lastSync).toLocaleString() : "not yet synced"}</span>
+          </p>
+          <p className={`mt-2 text-sm font-bold ${error ? "text-rose-600" : "text-emerald-600"}`}>
+            {error ? "Live database sync needs attention" : "Showing live records from the API"}
+          </p>
+        </div>
+        <SecondaryButton type="button" onClick={onRefresh} disabled={loading}>
+          {loading ? "Syncing..." : "Refresh records"}
+        </SecondaryButton>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({
-  users,
   onLogin,
   onRegister,
+  apiError,
+  onRefresh,
+  loading,
 }: {
-  users: AppUser[];
-  onLogin: (email: string, password: string) => string | null;
-  onRegister: (form: CustomerForm) => string | null;
+  onLogin: (email: string, password: string) => Promise<string | null>;
+  onRegister: (form: CustomerForm) => Promise<string | null>;
+  apiError: string;
+  onRefresh: () => void;
+  loading: boolean;
 }) {
   const [mode, setMode] = useState<"login" | "create">("login");
-  const [email, setEmail] = useState("admin@washmate.ph");
-  const [password, setPassword] = useState("admin123");
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
   const [registerForm, setRegisterForm] = useState<CustomerForm>({ name: "", email: "", phone: "", password: "" });
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-
-  function submitLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const loginError = onLogin(email, password);
-    setError(loginError ?? "");
-  }
-
-  function submitRegister(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (registerForm.password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-
-    const registerError = onRegister(registerForm);
-    setError(registerError ?? "");
-  }
-
-  function useDemo(role: Role) {
-    const demoUser = users.find((user) => user.role === role);
-    if (!demoUser) {
-      return;
-    }
-    setEmail(demoUser.email);
-    setPassword(demoUser.password);
-    setError("");
-    setMode("login");
-  }
+  const [formError, setFormError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function switchMode(nextMode: "login" | "create") {
     setMode(nextMode);
-    setError("");
+    setFormError("");
+  }
+
+  async function submitLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    const error = await onLogin(loginForm.email, loginForm.password);
+    setFormError(error ?? "");
+    setSubmitting(false);
+  }
+
+  async function submitRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (registerForm.password !== confirmPassword) {
+      setFormError("Passwords do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+    const error = await onRegister(registerForm);
+    setFormError(error ?? "");
+    setSubmitting(false);
   }
 
   return (
@@ -484,36 +490,26 @@ function LoginScreen({
         alt="Modern laundromat with rows of washing machines"
         className="absolute inset-0 h-full w-full object-cover opacity-55 animate-hero-pan"
       />
-      <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/78 to-sky-950/30" />
+      <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-sky-950/35" />
       <div className="relative mx-auto grid min-h-screen max-w-7xl items-center gap-10 px-6 py-10 lg:grid-cols-[1.05fr_0.95fr] lg:px-10">
         <section className="animate-rise-in space-y-8">
           <div className="flex items-center gap-4">
             <LogoMark />
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.45em] text-sky-200">Web-Based</p>
+              <p className="text-sm font-bold uppercase tracking-[0.45em] text-sky-200">Database-backed</p>
               <h1 className="text-5xl font-black tracking-tight sm:text-7xl">Washmate</h1>
             </div>
           </div>
           <div className="max-w-2xl space-y-5">
             <p className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">Laundromat System</p>
             <p className="max-w-xl text-base leading-8 text-slate-200 sm:text-lg">
-              Book laundry by kilo, calculate peso totals automatically, update running order status, and manage customer
-              accounts and machines from one online platform.
+              Login, customer accounts, orders, machine status, and price per kilo are loaded from your Aiven MySQL
+              records through the Express API.
             </p>
           </div>
-          <div className="grid max-w-xl grid-cols-3 gap-4 text-sm text-slate-200">
-            <div className="border-l border-white/25 pl-4">
-              <span className="block text-2xl font-black text-white">PHP</span>
-              Per kilo pricing
-            </div>
-            <div className="border-l border-white/25 pl-4">
-              <span className="block text-2xl font-black text-white">Live</span>
-              Order actions
-            </div>
-            <div className="border-l border-white/25 pl-4">
-              <span className="block text-2xl font-black text-white">Role</span>
-              Admin and customer
-            </div>
+          <div className="max-w-xl border-l border-white/25 pl-5 text-sm text-slate-200">
+            <span className="block text-2xl font-black text-white">Live Aiven records</span>
+            If a table is empty, this dashboard will show an empty state instead of sample data.
           </div>
         </section>
 
@@ -524,7 +520,7 @@ function LoginScreen({
                 {mode === "login" ? "Login Form" : "Create Account"}
               </p>
               <h2 className="mt-2 text-3xl font-black tracking-tight">
-                {mode === "login" ? "Access Washmate" : "Customer signup"}
+                {mode === "login" ? "Access dashboard" : "Customer signup"}
               </h2>
             </div>
             <div className="hidden h-12 w-12 items-center justify-center rounded-full bg-sky-50 text-sky-700 sm:flex">
@@ -553,34 +549,42 @@ function LoginScreen({
             </button>
           </div>
 
+          <ApiAlert error={apiError} onRefresh={onRefresh} />
+
           {mode === "login" ? (
-            <form onSubmit={submitLogin} className="space-y-4">
+            <form onSubmit={submitLogin} className="mt-5 space-y-4">
               <div className="space-y-2">
-                <FieldLabel>Email address</FieldLabel>
-                <TextInput value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+                <FieldLabel>Email or username from Aiven accounts table</FieldLabel>
+                <TextInput
+                  value={loginForm.email}
+                  onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
+                  type="text"
+                  autoComplete="username"
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <FieldLabel>Password</FieldLabel>
                 <TextInput
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
+                  value={loginForm.password}
+                  onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
                   type="password"
+                  autoComplete="current-password"
                   required
                 />
               </div>
-              {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-              <PrimaryButton type="submit" className="w-full">
-                Sign in
+              {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
+              <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                {submitting ? "Checking Aiven..." : "Sign in"}
               </PrimaryButton>
             </form>
           ) : (
-            <form onSubmit={submitRegister} className="space-y-4">
+            <form onSubmit={submitRegister} className="mt-5 space-y-4">
               <div className="space-y-2">
                 <FieldLabel>Full name</FieldLabel>
                 <TextInput
                   value={registerForm.name}
                   onChange={(event) => setRegisterForm({ ...registerForm, name: event.target.value })}
-                  placeholder="Your full name"
                   required
                 />
               </div>
@@ -591,7 +595,6 @@ function LoginScreen({
                     value={registerForm.email}
                     onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })}
                     type="email"
-                    placeholder="you@example.com"
                     required
                   />
                 </div>
@@ -600,7 +603,6 @@ function LoginScreen({
                   <TextInput
                     value={registerForm.phone}
                     onChange={(event) => setRegisterForm({ ...registerForm, phone: event.target.value })}
-                    placeholder="09xx xxx xxxx"
                     required
                   />
                 </div>
@@ -627,36 +629,11 @@ function LoginScreen({
                   />
                 </div>
               </div>
-              {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</p> : null}
-              <PrimaryButton type="submit" className="w-full">
-                Create customer account
+              {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
+              <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                {submitting ? "Saving to Aiven..." : "Create customer account"}
               </PrimaryButton>
             </form>
-          )}
-
-          {mode === "login" ? (
-            <div className="mt-6 grid gap-3 border-t border-slate-100 pt-6 sm:grid-cols-2">
-              <button
-                type="button"
-                onClick={() => useDemo("admin")}
-                className="rounded-2xl bg-slate-100 px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-sky-50 hover:text-sky-700"
-              >
-                Admin demo
-                <span className="block text-xs font-semibold text-slate-500">admin@washmate.ph</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => useDemo("customer")}
-                className="rounded-2xl bg-slate-100 px-4 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-sky-50 hover:text-sky-700"
-              >
-                Customer demo
-                <span className="block text-xs font-semibold text-slate-500">maria@washmate.ph</span>
-              </button>
-            </div>
-          ) : (
-            <p className="mt-5 text-center text-sm font-semibold text-slate-500">
-              New accounts are created as customer accounts and open the customer dashboard immediately.
-            </p>
           )}
         </section>
       </div>
@@ -667,10 +644,14 @@ function LoginScreen({
 function DashboardShell({
   currentUser,
   onLogout,
+  onRefresh,
+  loading,
   children,
 }: {
   currentUser: AppUser;
   onLogout: () => void;
+  onRefresh: () => void;
+  loading: boolean;
   children: ReactNode;
 }) {
   return (
@@ -681,10 +662,13 @@ function DashboardShell({
             <LogoMark dark />
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-600">Washmate</p>
-              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Laundromat System</h1>
+              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Aiven Dashboard</h1>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <SecondaryButton type="button" onClick={onRefresh} disabled={loading} className="hidden sm:inline-flex">
+              {loading ? "Syncing" : "Sync"}
+            </SecondaryButton>
             <div className="hidden text-right sm:block">
               <p className="text-sm font-bold">{currentUser.name}</p>
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{currentUser.role}</p>
@@ -704,7 +688,11 @@ function AdminDashboard({
   orders,
   machines,
   pricePerKilo,
+  apiError,
+  lastSync,
+  loading,
   onLogout,
+  onRefresh,
   onAddCustomer,
   onAdvanceOrder,
   onMachineStatusChange,
@@ -717,13 +705,17 @@ function AdminDashboard({
   orders: Order[];
   machines: Machine[];
   pricePerKilo: number;
+  apiError: string;
+  lastSync: string | null;
+  loading: boolean;
   onLogout: () => void;
-  onAddCustomer: (form: CustomerForm) => string | null;
-  onAdvanceOrder: (orderId: string, stage: OrderStage, status: OrderStatus) => void;
-  onMachineStatusChange: (machineId: string, status: MachineStatus) => void;
-  onMachineNoteChange: (machineId: string, note: string) => void;
-  onAddMachine: (form: MachineForm) => string | null;
-  onPriceChange: (rate: number) => string | null;
+  onRefresh: () => void;
+  onAddCustomer: (form: CustomerForm) => Promise<string | null>;
+  onAdvanceOrder: (order: Order, stage: OrderStage, status: OrderStatus) => Promise<string | null>;
+  onMachineStatusChange: (machine: Machine, status: MachineStatus) => Promise<string | null>;
+  onMachineNoteChange: (machine: Machine, note: string) => Promise<string | null>;
+  onAddMachine: (form: MachineForm) => Promise<string | null>;
+  onPriceChange: (rate: number) => Promise<string | null>;
 }) {
   const [activeTab, setActiveTab] = useState<"orders" | "customers" | "machines" | "pricing">("orders");
   const [customerForm, setCustomerForm] = useState<CustomerForm>({ name: "", email: "", phone: "", password: "" });
@@ -736,51 +728,63 @@ function AdminDashboard({
   });
   const [priceInput, setPriceInput] = useState(String(pricePerKilo));
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => setPriceInput(String(pricePerKilo)), [pricePerKilo]);
 
   const customerUsers = users.filter((user) => user.role === "customer");
   const runningOrders = orders.filter((order) => order.status === "Running").length;
   const availableMachines = machines.filter((machine) => machine.status === "Available").length;
 
-  function submitCustomer(event: FormEvent<HTMLFormElement>) {
+  async function submitCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = onAddCustomer(customerForm);
-    setMessage(result ?? "Customer account added successfully.");
+    setSubmitting(true);
+    const result = await onAddCustomer(customerForm);
+    setSubmitting(false);
+    setMessage(result ?? "Customer account saved to Aiven.");
     if (!result) {
       setCustomerForm({ name: "", email: "", phone: "", password: "" });
     }
   }
 
-  function submitMachine(event: FormEvent<HTMLFormElement>) {
+  async function submitMachine(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = onAddMachine(machineForm);
-    setMessage(result ?? "Machine added successfully.");
+    setSubmitting(true);
+    const result = await onAddMachine(machineForm);
+    setSubmitting(false);
+    setMessage(result ?? "Machine saved to Aiven.");
     if (!result) {
       setMachineForm({ name: "", type: "Washer", capacityKg: "8", status: "Available", note: "" });
     }
   }
 
-  function submitPrice(event: FormEvent<HTMLFormElement>) {
+  async function submitPrice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = onPriceChange(Number(priceInput));
-    setMessage(result ?? "Price per kilo updated.");
+    setSubmitting(true);
+    const result = await onPriceChange(Number(priceInput));
+    setSubmitting(false);
+    setMessage(result ?? "Price per kilo updated in Aiven.");
   }
 
   return (
-    <DashboardShell currentUser={currentUser} onLogout={onLogout}>
+    <DashboardShell currentUser={currentUser} onLogout={onLogout} onRefresh={onRefresh} loading={loading}>
       <section className="animate-rise-in space-y-6">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Admin Workspace</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Daily operations</h2>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Aiven records control room</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-              Manage all orders, customer accounts, peso pricing, and machine availability. Running status is used for
-              washing, drying, and folding actions.
+              Every table, count, order, customer, machine, and price is fetched from the Express API connected to Aiven
+              MySQL. No sample data is injected in the frontend.
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">
-            {runningOrders} running orders, {availableMachines} machines available, {customerUsers.length} customers
+            {runningOrders} running orders, {availableMachines} available machines, {customerUsers.length} customers
           </p>
         </div>
+
+        <ApiAlert error={apiError} onRefresh={onRefresh} />
+        <ConnectionPanel lastSync={lastSync} error={apiError} onRefresh={onRefresh} loading={loading} />
 
         <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
           {[
@@ -809,105 +813,14 @@ function AdminDashboard({
         ) : null}
 
         {activeTab === "orders" ? (
-          <section className="space-y-8">
-            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white">
-              <div className="border-b border-slate-100 px-5 py-4">
-                <h3 className="text-xl font-black">All laundry orders</h3>
-                <p className="text-sm text-slate-500">Click an action to update the order stage and customer status.</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-[960px] w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-xs uppercase tracking-[0.18em] text-slate-500">
-                    <tr>
-                      <th className="px-5 py-4">Order</th>
-                      <th className="px-5 py-4">Customer</th>
-                      <th className="px-5 py-4">Kilo and total</th>
-                      <th className="px-5 py-4">Status</th>
-                      <th className="px-5 py-4">Machine</th>
-                      <th className="px-5 py-4">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {orders.map((order) => (
-                      <tr key={order.id} className="align-top">
-                        <td className="px-5 py-5">
-                          <p className="font-black text-slate-900">{order.id}</p>
-                          <p className="text-xs text-slate-500">{formatDate(order.createdAt)}</p>
-                          <p className="mt-2 text-xs font-semibold text-slate-500">{order.paymentMethod}</p>
-                        </td>
-                        <td className="px-5 py-5">
-                          <p className="font-bold text-slate-900">{order.customerName}</p>
-                          <p className="text-xs text-slate-500">{order.paymentStatus}</p>
-                        </td>
-                        <td className="px-5 py-5">
-                          <p className="font-bold">{order.kilograms} kg</p>
-                          <p className="text-slate-500">{formatPeso(order.ratePerKilo)} per kg</p>
-                          <p className="mt-1 font-black text-sky-700">{formatPeso(order.total)}</p>
-                        </td>
-                        <td className="px-5 py-5">
-                          <div className="flex flex-col items-start gap-2">
-                            <StagePill stage={order.stage} />
-                            <StatusPill status={order.status} />
-                          </div>
-                        </td>
-                        <td className="px-5 py-5">
-                          <p className="font-semibold text-slate-800">{order.machine}</p>
-                        </td>
-                        <td className="px-5 py-5">
-                          <div className="flex max-w-xs flex-wrap gap-2">
-                            {getNextActions(order).length ? (
-                              getNextActions(order).map((action) => (
-                                <button
-                                  key={`${order.id}-${action.label}`}
-                                  type="button"
-                                  onClick={() => onAdvanceOrder(order.id, action.stage, action.status)}
-                                  className={`rounded-full px-3 py-2 text-xs font-black transition hover:-translate-y-0.5 ${
-                                    action.stage === "Cancelled"
-                                      ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
-                                      : "bg-sky-50 text-sky-700 hover:bg-sky-100"
-                                  }`}
-                                >
-                                  {action.label}
-                                </button>
-                              ))
-                            ) : (
-                              <span className="text-sm font-semibold text-slate-400">No further action</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
-              <h3 className="text-xl font-black">Recommended order action flow</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                These are the admin actions and the customer-facing status they create.
-              </p>
-              <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {statusActions.map((action) => (
-                  <div key={action.label} className="rounded-3xl bg-slate-50 p-4">
-                    <p className="font-black text-slate-900">{action.label}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <StagePill stage={action.stage} />
-                      <StatusPill status={action.status} />
-                    </div>
-                    <p className="mt-3 text-sm text-slate-600">{action.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
+          <AdminOrders orders={orders} onAdvanceOrder={onAdvanceOrder} setMessage={setMessage} />
         ) : null}
 
         {activeTab === "customers" ? (
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitCustomer} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Add customer account</h3>
-              <p className="mt-1 text-sm text-slate-500">The new customer can use this email and password to login.</p>
+              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the Aiven accounts table.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Full name</FieldLabel>
@@ -944,8 +857,8 @@ function AdminDashboard({
                     required
                   />
                 </div>
-                <PrimaryButton type="submit" className="w-full">
-                  Create customer
+                <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                  Create customer in Aiven
                 </PrimaryButton>
               </div>
             </form>
@@ -953,20 +866,26 @@ function AdminDashboard({
             <div className="rounded-[2rem] border border-slate-200 bg-white">
               <div className="border-b border-slate-100 px-5 py-4">
                 <h3 className="text-xl font-black">Customer records</h3>
-                <p className="text-sm text-slate-500">Registered users with customer access.</p>
+                <p className="text-sm text-slate-500">Rows from accounts where role is customer.</p>
               </div>
-              <div className="divide-y divide-slate-100">
-                {customerUsers.map((customer) => (
-                  <div key={customer.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
-                    <div>
-                      <p className="font-black text-slate-900">{customer.name}</p>
-                      <p className="text-sm text-slate-500">{customer.email}</p>
-                      <p className="text-sm text-slate-500">{customer.phone}</p>
+              {customerUsers.length ? (
+                <div className="divide-y divide-slate-100">
+                  {customerUsers.map((customer) => (
+                    <div key={customer.id} className="grid gap-3 px-5 py-4 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <div>
+                        <p className="font-black text-slate-900">{customer.name}</p>
+                        <p className="text-sm text-slate-500">{customer.email}</p>
+                        <p className="text-sm text-slate-500">{customer.phone || "No phone recorded"}</p>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-500">Joined {formatDate(customer.createdAt)}</p>
                     </div>
-                    <p className="text-sm font-semibold text-slate-500">Joined {formatDate(customer.createdAt)}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-5">
+                  <EmptyState title="No customer rows" text="Add a customer or insert records into the accounts table." />
+                </div>
+              )}
             </div>
           </section>
         ) : null}
@@ -976,49 +895,37 @@ function AdminDashboard({
             <div className="rounded-[2rem] border border-slate-200 bg-white">
               <div className="border-b border-slate-100 px-5 py-4">
                 <h3 className="text-xl font-black">Machine maintenance manager</h3>
-                <p className="text-sm text-slate-500">Set each machine to available, in use, maintenance, cleaning, or out of service.</p>
+                <p className="text-sm text-slate-500">Rows from the machines table.</p>
               </div>
-              <div className="divide-y divide-slate-100">
-                {machines.map((machine) => (
-                  <div key={machine.id} className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_180px_1.1fr] lg:items-center">
-                    <div>
-                      <p className="font-black text-slate-900">{machine.name}</p>
-                      <p className="text-sm text-slate-500">
-                        {machine.type} - {machine.capacityKg} kg capacity
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <StatusPill status={machine.status} />
-                      <SelectInput
-                        value={machine.status}
-                        onChange={(event) => onMachineStatusChange(machine.id, event.target.value as MachineStatus)}
-                      >
-                        {machineStatuses.map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
-                        ))}
-                      </SelectInput>
-                    </div>
-                    <div className="space-y-2">
-                      <FieldLabel>Maintenance note</FieldLabel>
-                      <TextInput value={machine.note} onChange={(event) => onMachineNoteChange(machine.id, event.target.value)} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              {machines.length ? (
+                <div className="divide-y divide-slate-100">
+                  {machines.map((machine) => (
+                    <MachineRow
+                      key={machine.id}
+                      machine={machine}
+                      loading={loading}
+                      onStatusChange={onMachineStatusChange}
+                      onNoteSave={onMachineNoteChange}
+                      setMessage={setMessage}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="p-5">
+                  <EmptyState title="No machine rows" text="Add machines here or insert them into the machines table." />
+                </div>
+              )}
             </div>
 
             <form onSubmit={submitMachine} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Add machine</h3>
-              <p className="mt-1 text-sm text-slate-500">Use this for new washers, dryers, or folding stations.</p>
+              <p className="mt-1 text-sm text-slate-500">This creates a new row in the machines table.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Machine name</FieldLabel>
                   <TextInput
                     value={machineForm.name}
                     onChange={(event) => setMachineForm({ ...machineForm, name: event.target.value })}
-                    placeholder="Washer 03"
                     required
                   />
                 </div>
@@ -1066,11 +973,10 @@ function AdminDashboard({
                   <TextInput
                     value={machineForm.note}
                     onChange={(event) => setMachineForm({ ...machineForm, note: event.target.value })}
-                    placeholder="Ready, under repair, needs cleaning"
                   />
                 </div>
-                <PrimaryButton type="submit" className="w-full">
-                  Save machine
+                <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                  Save machine to Aiven
                 </PrimaryButton>
               </div>
             </form>
@@ -1081,7 +987,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
             <form onSubmit={submitPrice} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Set peso price per kilo</h3>
-              <p className="mt-1 text-sm text-slate-500">Customers will see this rate and totals will calculate automatically.</p>
+              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 in Aiven.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Price per kilo in PHP</FieldLabel>
@@ -1094,14 +1000,14 @@ function AdminDashboard({
                     required
                   />
                 </div>
-                <PrimaryButton type="submit" className="w-full">
-                  Update price
+                <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                  Update Aiven price
                 </PrimaryButton>
               </div>
             </form>
 
             <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white">
-              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current rate</p>
+              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current database rate</p>
               <p className="mt-4 text-5xl font-black tracking-tight">{formatPeso(pricePerKilo)}</p>
               <p className="mt-3 text-slate-300">per kilo for new laundry orders</p>
               <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
@@ -1117,6 +1023,190 @@ function AdminDashboard({
         ) : null}
       </section>
     </DashboardShell>
+  );
+}
+
+function AdminOrders({
+  orders,
+  onAdvanceOrder,
+  setMessage,
+}: {
+  orders: Order[];
+  onAdvanceOrder: (order: Order, stage: OrderStage, status: OrderStatus) => Promise<string | null>;
+  setMessage: (value: string) => void;
+}) {
+  const [workingOrder, setWorkingOrder] = useState("");
+
+  async function runAction(order: Order, stage: OrderStage, status: OrderStatus) {
+    setWorkingOrder(order.id);
+    const result = await onAdvanceOrder(order, stage, status);
+    setWorkingOrder("");
+    setMessage(result ?? `${order.id} updated to ${stage}.`);
+  }
+
+  if (!orders.length) {
+    return <EmptyState title="No order rows" text="Orders from Aiven will appear here after customers submit laundry." />;
+  }
+
+  return (
+    <section className="space-y-8">
+      <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white">
+        <div className="border-b border-slate-100 px-5 py-4">
+          <h3 className="text-xl font-black">All laundry orders</h3>
+          <p className="text-sm text-slate-500">Rows from the orders table. Actions update orders and machine records.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[960px] w-full text-left text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-[0.18em] text-slate-500">
+              <tr>
+                <th className="px-5 py-4">Order</th>
+                <th className="px-5 py-4">Customer</th>
+                <th className="px-5 py-4">Kilo and total</th>
+                <th className="px-5 py-4">Status</th>
+                <th className="px-5 py-4">Machine</th>
+                <th className="px-5 py-4">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {orders.map((order) => (
+                <tr key={order.id} className="align-top">
+                  <td className="px-5 py-5">
+                    <p className="font-black text-slate-900">{order.id}</p>
+                    <p className="text-xs text-slate-500">{formatDate(order.createdAt)}</p>
+                    <p className="mt-2 text-xs font-semibold text-slate-500">{order.paymentMethod}</p>
+                  </td>
+                  <td className="px-5 py-5">
+                    <p className="font-bold text-slate-900">{order.customerName}</p>
+                    <p className="text-xs text-slate-500">{order.paymentStatus}</p>
+                  </td>
+                  <td className="px-5 py-5">
+                    <p className="font-bold">{order.kilograms} kg</p>
+                    <p className="text-slate-500">{formatPeso(order.ratePerKilo)} per kg</p>
+                    <p className="mt-1 font-black text-sky-700">{formatPeso(order.total)}</p>
+                  </td>
+                  <td className="px-5 py-5">
+                    <div className="flex flex-col items-start gap-2">
+                      <StagePill stage={order.stage} />
+                      <StatusPill status={order.status} />
+                    </div>
+                  </td>
+                  <td className="px-5 py-5">
+                    <p className="font-semibold text-slate-800">{order.machine}</p>
+                  </td>
+                  <td className="px-5 py-5">
+                    <div className="flex max-w-xs flex-wrap gap-2">
+                      {getNextActions(order).length ? (
+                        getNextActions(order).map((action) => (
+                          <button
+                            key={`${order.id}-${action.label}`}
+                            type="button"
+                            disabled={workingOrder === order.id}
+                            onClick={() => void runAction(order, action.stage, action.status)}
+                            className={`rounded-full px-3 py-2 text-xs font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50 ${
+                              action.stage === "Cancelled"
+                                ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                                : "bg-sky-50 text-sky-700 hover:bg-sky-100"
+                            }`}
+                          >
+                            {workingOrder === order.id ? "Updating..." : action.label}
+                          </button>
+                        ))
+                      ) : (
+                        <span className="text-sm font-semibold text-slate-400">No further action</span>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
+        <h3 className="text-xl font-black">Order action to status mapping</h3>
+        <p className="mt-1 text-sm text-slate-500">These are business rules, not database seed records.</p>
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {statusActions.map((action) => (
+            <div key={action.label} className="rounded-3xl bg-slate-50 p-4">
+              <p className="font-black text-slate-900">{action.label}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <StagePill stage={action.stage} />
+                <StatusPill status={action.status} />
+              </div>
+              <p className="mt-3 text-sm text-slate-600">{action.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MachineRow({
+  machine,
+  loading,
+  onStatusChange,
+  onNoteSave,
+  setMessage,
+}: {
+  machine: Machine;
+  loading: boolean;
+  onStatusChange: (machine: Machine, status: MachineStatus) => Promise<string | null>;
+  onNoteSave: (machine: Machine, note: string) => Promise<string | null>;
+  setMessage: (value: string) => void;
+}) {
+  const [note, setNote] = useState(machine.note || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setNote(machine.note || ""), [machine.note]);
+
+  async function updateStatus(status: MachineStatus) {
+    setSaving(true);
+    const result = await onStatusChange(machine, status);
+    setSaving(false);
+    setMessage(result ?? `${machine.name} status updated to ${status}.`);
+  }
+
+  async function saveNote() {
+    setSaving(true);
+    const result = await onNoteSave(machine, note);
+    setSaving(false);
+    setMessage(result ?? `${machine.name} note saved.`);
+  }
+
+  return (
+    <div className="grid gap-4 px-5 py-5 lg:grid-cols-[1fr_190px_1.1fr] lg:items-center">
+      <div>
+        <p className="font-black text-slate-900">{machine.name}</p>
+        <p className="text-sm text-slate-500">
+          {machine.type} - {machine.capacityKg} kg capacity
+        </p>
+      </div>
+      <div className="space-y-2">
+        <StatusPill status={machine.status} />
+        <SelectInput
+          value={machine.status}
+          disabled={saving || loading}
+          onChange={(event) => void updateStatus(event.target.value as MachineStatus)}
+        >
+          {machineStatuses.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </SelectInput>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+        <div className="space-y-2">
+          <FieldLabel>Maintenance note</FieldLabel>
+          <TextInput value={note} disabled={saving || loading} onChange={(event) => setNote(event.target.value)} />
+        </div>
+        <SecondaryButton type="button" disabled={saving || loading} onClick={() => void saveNote()}>
+          Save
+        </SecondaryButton>
+      </div>
+    </div>
   );
 }
 
@@ -1151,46 +1241,59 @@ function CustomerDashboard({
   currentUser,
   orders,
   pricePerKilo,
+  apiError,
+  lastSync,
+  loading,
   onLogout,
+  onRefresh,
   onCreateOrder,
 }: {
   currentUser: AppUser;
   orders: Order[];
   pricePerKilo: number;
+  apiError: string;
+  lastSync: string | null;
+  loading: boolean;
   onLogout: () => void;
-  onCreateOrder: (form: LaundryForm) => string | null;
+  onRefresh: () => void;
+  onCreateOrder: (form: LaundryForm) => Promise<string | null>;
 }) {
   const [activeTab, setActiveTab] = useState<"book" | "orders" | "rates">("book");
   const [laundryForm, setLaundryForm] = useState<LaundryForm>({ kilograms: "", paymentMethod: "Cash" });
   const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const customerOrders = orders.filter((order) => order.customerId === currentUser.id);
   const kilograms = Number(laundryForm.kilograms);
   const total = Number.isFinite(kilograms) && kilograms > 0 ? roundMoney(kilograms * pricePerKilo) : 0;
 
-  function submitOrder(event: FormEvent<HTMLFormElement>) {
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = onCreateOrder(laundryForm);
-    setMessage(result ?? "Laundry order submitted. Admin can now mark it as washing.");
+    setSubmitting(true);
+    const result = await onCreateOrder(laundryForm);
+    setSubmitting(false);
+    setMessage(result ?? "Laundry order saved to Aiven. Admin can now mark it as washing.");
     if (!result) {
       setLaundryForm({ kilograms: "", paymentMethod: "Cash" });
     }
   }
 
   return (
-    <DashboardShell currentUser={currentUser} onLogout={onLogout}>
+    <DashboardShell currentUser={currentUser} onLogout={onLogout} onRefresh={onRefresh} loading={loading}>
       <section className="animate-rise-in space-y-6">
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Customer Portal</p>
             <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Book and track laundry</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-              View the current peso price per kilo, get an automatic total, and follow your order status from received to
-              claimed.
+              Price, orders, and status are loaded from the Aiven-backed API. Refresh to re-query the database.
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">Current price: {formatPeso(pricePerKilo)} per kg</p>
         </div>
+
+        <ApiAlert error={apiError} onRefresh={onRefresh} />
+        <ConnectionPanel lastSync={lastSync} error={apiError} onRefresh={onRefresh} loading={loading} />
 
         <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
           {[
@@ -1221,7 +1324,7 @@ function CustomerDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitOrder} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Create laundry order</h3>
-              <p className="mt-1 text-sm text-slate-500">Enter kilos and the total will calculate automatically in PHP.</p>
+              <p className="mt-1 text-sm text-slate-500">The peso total is calculated from the pricing table.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Kilograms</FieldLabel>
@@ -1231,7 +1334,6 @@ function CustomerDashboard({
                     step="0.25"
                     value={laundryForm.kilograms}
                     onChange={(event) => setLaundryForm({ ...laundryForm, kilograms: event.target.value })}
-                    placeholder="Example: 4.5"
                     required
                   />
                 </div>
@@ -1248,8 +1350,8 @@ function CustomerDashboard({
                     <option value="Card">Card</option>
                   </SelectInput>
                 </div>
-                <PrimaryButton type="submit" className="w-full">
-                  Submit order
+                <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
+                  {submitting ? "Saving order..." : "Submit order to Aiven"}
                 </PrimaryButton>
               </div>
             </form>
@@ -1265,7 +1367,7 @@ function CustomerDashboard({
                   </p>
                   <div className="mt-8 space-y-4 border-t border-white/10 pt-6">
                     <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-slate-300">Price per kilo</span>
+                      <span className="text-slate-300">Price per kilo from DB</span>
                       <span className="font-black">{formatPeso(pricePerKilo)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-4 text-sm">
@@ -1311,10 +1413,7 @@ function CustomerDashboard({
                 </article>
               ))
             ) : (
-              <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-center">
-                <h3 className="text-xl font-black">No orders yet</h3>
-                <p className="mt-2 text-slate-500">Create your first laundry order from the Book Laundry tab.</p>
-              </div>
+              <EmptyState title="No orders for this account" text="Create an order or check that customerId matches your account id." />
             )}
           </section>
         ) : null}
@@ -1322,7 +1421,7 @@ function CustomerDashboard({
         {activeTab === "rates" ? (
           <section className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
             <h3 className="text-xl font-black">Customer price list</h3>
-            <p className="mt-1 text-sm text-slate-500">The laundromat charges by weight. The current rate is visible below.</p>
+            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo in Aiven.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 3, 5, 10].map((kilo) => (
                 <div key={kilo} className="rounded-3xl bg-slate-50 p-5">
@@ -1338,222 +1437,257 @@ function CustomerDashboard({
   );
 }
 
-export default function App() {
-  const [users, setUsers] = useState<AppUser[]>(() => loadStored(USERS_KEY, seedUsers));
-  const [orders, setOrders] = useState<Order[]>(() => loadStored(ORDERS_KEY, seedOrders));
-  const [machines, setMachines] = useState<Machine[]>(() => loadStored(MACHINES_KEY, seedMachines));
-  const [pricePerKilo, setPricePerKilo] = useState(() => loadStored(PRICE_KEY, DEFAULT_PRICE_PER_KILO));
-  const [currentUserId, setCurrentUserId] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    return window.localStorage.getItem(SESSION_KEY);
-  });
-
-  const currentUser = useMemo(
-    () => users.find((user) => user.id === currentUserId) ?? null,
-    [currentUserId, users],
+function LoadingScreen() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+      <div className="animate-rise-in text-center">
+        <div className="mx-auto mb-5 flex justify-center">
+          <LogoMark />
+        </div>
+        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting to Aiven</p>
+        <h1 className="mt-3 text-4xl font-black tracking-tight">Loading Washmate records</h1>
+        <p className="mt-3 text-slate-300">Requesting /api/bootstrap from the Express server.</p>
+      </div>
+    </main>
   );
+}
 
-  useEffect(() => saveStored(USERS_KEY, users), [users]);
-  useEffect(() => saveStored(ORDERS_KEY, orders), [orders]);
-  useEffect(() => saveStored(MACHINES_KEY, machines), [machines]);
-  useEffect(() => saveStored(PRICE_KEY, pricePerKilo), [pricePerKilo]);
+export default function App() {
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [pricePerKilo, setPricePerKilo] = useState(0);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+  const [initializing, setInitializing] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [apiError, setApiError] = useState("");
+  const [lastSync, setLastSync] = useState<string | null>(null);
+
+  const machineByName = useMemo(() => new Map(machines.map((machine) => [machine.name, machine])), [machines]);
+
+  async function refreshData() {
+    setLoading(true);
+    try {
+      const data = await apiRequest<BootstrapData>("/api/bootstrap");
+      const nextUsers = data.users || [];
+      setUsers(nextUsers);
+      setOrders((data.orders || []).map((order) => ({ ...order, kilograms: Number(order.kilograms), total: Number(order.total) })));
+      setMachines((data.machines || []).map((machine) => ({ ...machine, capacityKg: Number(machine.capacityKg) })));
+      setPricePerKilo(Number(data.pricePerKilo || 0));
+      setLastSync(new Date().toISOString());
+      setApiError("");
+
+      setCurrentUser((existing) => {
+        if (!existing) {
+          return existing;
+        }
+
+        return nextUsers.find((user) => user.id === existing.id) || null;
+      });
+    } catch (error) {
+      setApiError(getErrorMessage(error));
+    } finally {
+      setLoading(false);
+      setInitializing(false);
+    }
+  }
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
+    void refreshData();
+  }, []);
 
-    if (currentUserId) {
-      window.localStorage.setItem(SESSION_KEY, currentUserId);
-    } else {
-      window.localStorage.removeItem(SESSION_KEY);
+  async function mutate<T>(action: () => Promise<T>) {
+    setLoading(true);
+    try {
+      const result = await action();
+      await refreshData();
+      return { result, error: null as string | null };
+    } catch (error) {
+      const message = getErrorMessage(error);
+      setApiError(message);
+      return { result: null, error: message };
+    } finally {
+      setLoading(false);
     }
-  }, [currentUserId]);
+  }
 
-  useEffect(() => {
-    if (currentUserId && !users.some((user) => user.id === currentUserId)) {
-      setCurrentUserId(null);
-    }
-  }, [currentUserId, users]);
-
-  function handleLogin(email: string, password: string) {
-    const normalizedEmail = email.trim().toLowerCase();
-    const matchingUser = users.find(
-      (user) => user.email.toLowerCase() === normalizedEmail && user.password === password,
+  async function handleLogin(email: string, password: string) {
+    const { result, error } = await mutate(() =>
+      apiRequest<LoginResponse>("/api/login", {
+        method: "POST",
+        body: JSON.stringify({ email, username: email, password }),
+      }),
     );
 
-    if (!matchingUser) {
-      return "Invalid email or password. Use a demo account, an admin-created account, or create a new account.";
+    if (error) {
+      return error;
     }
 
-    setCurrentUserId(matchingUser.id);
+    if (!result?.user) {
+      return "Login succeeded but the API did not return a user record.";
+    }
+
+    setCurrentUser(result.user);
+    return null;
+  }
+
+  async function handleRegisterCustomer(form: CustomerForm) {
+    const payload = {
+      role: "customer",
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      username: form.email.trim().toLowerCase(),
+      phone: form.phone.trim(),
+      password: form.password,
+    };
+
+    const { result, error } = await mutate(() =>
+      apiRequest<RegisterResponse>("/api/register", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    );
+
+    if (error) {
+      return error;
+    }
+
+    if (!result?.user) {
+      return "Account was created but the API did not return the new user.";
+    }
+
+    setCurrentUser(result.user);
     return null;
   }
 
   function handleLogout() {
-    setCurrentUserId(null);
+    setCurrentUser(null);
   }
 
-  function handleAddCustomer(form: CustomerForm) {
-    const name = form.name.trim();
-    const email = form.email.trim().toLowerCase();
-    const phone = form.phone.trim();
-    const password = form.password.trim();
-
-    if (!name || !email || !phone || !password) {
-      return "Please complete all customer fields.";
-    }
-
-    if (users.some((user) => user.email.toLowerCase() === email)) {
-      return "A user with this email already exists.";
-    }
-
-    setUsers((current) => [
-      ...current,
-      {
-        id: makeId("cust"),
-        role: "customer",
-        name,
-        email,
-        phone,
-        password,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-
-    return null;
-  }
-
-  function handleRegisterCustomer(form: CustomerForm) {
-    const name = form.name.trim();
-    const email = form.email.trim().toLowerCase();
-    const phone = form.phone.trim();
-    const password = form.password.trim();
-
-    if (!name || !email || !phone || !password) {
-      return "Please complete all account fields.";
-    }
-
-    if (password.length < 4) {
-      return "Password must be at least 4 characters.";
-    }
-
-    if (users.some((user) => user.email.toLowerCase() === email)) {
-      return "A user with this email already exists. Login instead.";
-    }
-
-    const newUser: AppUser = {
-      id: makeId("cust"),
+  async function handleAddCustomer(form: CustomerForm) {
+    const payload = {
       role: "customer",
-      name,
-      email,
-      phone,
-      password,
-      createdAt: new Date().toISOString(),
+      name: form.name.trim(),
+      email: form.email.trim().toLowerCase(),
+      username: form.email.trim().toLowerCase(),
+      phone: form.phone.trim(),
+      password: form.password,
     };
 
-    setUsers((current) => [...current, newUser]);
-    setCurrentUserId(newUser.id);
-    return null;
+    const { error } = await mutate(() =>
+      apiRequest<RegisterResponse>("/api/customers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    );
+
+    return error;
   }
 
-  function handleAddMachine(form: MachineForm) {
+  async function handleAddMachine(form: MachineForm) {
     const capacityKg = Number(form.capacityKg);
-    const name = form.name.trim();
-
-    if (!name || !Number.isFinite(capacityKg) || capacityKg <= 0) {
-      return "Please enter a valid machine name and capacity.";
+    if (!form.name.trim() || !Number.isFinite(capacityKg) || capacityKg <= 0) {
+      return "Machine name and capacity are required.";
     }
 
-    if (machines.some((machine) => machine.name.toLowerCase() === name.toLowerCase())) {
-      return "A machine with this name already exists.";
-    }
+    const { error } = await mutate(() =>
+      apiRequest<{ success: boolean; machine: Machine }>("/api/machines", {
+        method: "POST",
+        body: JSON.stringify({ ...form, name: form.name.trim(), capacityKg }),
+      }),
+    );
 
-    setMachines((current) => [
-      ...current,
-      {
-        id: makeId("machine"),
-        name,
-        type: form.type,
-        capacityKg,
-        status: form.status,
-        note: form.note.trim() || "No note",
-      },
-    ]);
-
-    return null;
+    return error;
   }
 
-  function handlePriceChange(rate: number) {
+  async function handlePriceChange(rate: number) {
     if (!Number.isFinite(rate) || rate <= 0) {
       return "Enter a valid peso price per kilo.";
     }
-    setPricePerKilo(roundMoney(rate));
-    return null;
-  }
 
-  function handleMachineStatusChange(machineId: string, status: MachineStatus) {
-    setMachines((current) =>
-      current.map((machine) =>
-        machine.id === machineId
-          ? {
-              ...machine,
-              status,
-              note: status === "Maintenance" ? "Under maintenance" : machine.note,
-            }
-          : machine,
-      ),
+    const { error } = await mutate(() =>
+      apiRequest<{ success: boolean; pricePerKilo: number }>("/api/pricing", {
+        method: "PUT",
+        body: JSON.stringify({ pricePerKilo: roundMoney(rate) }),
+      }),
     );
+
+    return error;
   }
 
-  function handleMachineNoteChange(machineId: string, note: string) {
-    setMachines((current) => current.map((machine) => (machine.id === machineId ? { ...machine, note } : machine)));
-  }
-
-  function handleAdvanceOrder(orderId: string, stage: OrderStage, status: OrderStatus) {
-    const targetOrder = orders.find((order) => order.id === orderId);
-    if (!targetOrder) {
-      return;
-    }
-
-    let nextMachine = targetOrder.machine;
-    let nextMachines = releaseMachine(machines, targetOrder.machine);
-
-    if (stage === "Washing") {
-      const washer = nextMachines.find((machine) => machine.type === "Washer" && machine.status === "Available");
-      nextMachine = washer ? washer.name : "Waiting for washer";
-      if (washer) {
-        nextMachines = nextMachines.map((machine) =>
-          machine.id === washer.id
-            ? { ...machine, status: "In Use", note: `Assigned to order ${targetOrder.id}` }
-            : machine,
-        );
-      }
-    } else if (stage === "Drying") {
-      const dryer = nextMachines.find((machine) => machine.type === "Dryer" && machine.status === "Available");
-      nextMachine = dryer ? dryer.name : "Waiting for dryer";
-      if (dryer) {
-        nextMachines = nextMachines.map((machine) =>
-          machine.id === dryer.id ? { ...machine, status: "In Use", note: `Assigned to order ${targetOrder.id}` } : machine,
-        );
-      }
-    } else if (stage === "Folding") {
-      nextMachine = "Folding area";
-    } else if (stage === "Ready for Pickup") {
-      nextMachine = "Pickup shelf";
-    } else if (stage === "Claimed" || stage === "Cancelled") {
-      nextMachine = stage;
-    }
-
-    setMachines(nextMachines);
-    setOrders((current) =>
-      current.map((order) => (order.id === orderId ? { ...order, stage, status, machine: nextMachine } : order)),
+  async function handleMachineStatusChange(machine: Machine, status: MachineStatus) {
+    const { error } = await mutate(() =>
+      apiRequest<{ success: boolean; machine: Machine }>(`/api/machines/${encodeURIComponent(machine.id)}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status, note: status === "Maintenance" ? "Under maintenance" : machine.note }),
+      }),
     );
+
+    return error;
   }
 
-  function handleCreateOrder(form: LaundryForm) {
+  async function handleMachineNoteChange(machine: Machine, note: string) {
+    const { error } = await mutate(() =>
+      apiRequest<{ success: boolean; machine: Machine }>(`/api/machines/${encodeURIComponent(machine.id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ note }),
+      }),
+    );
+
+    return error;
+  }
+
+  async function updateMachineStatus(machine: Machine, status: MachineStatus, note: string) {
+    await apiRequest<{ success: boolean; machine: Machine }>(`/api/machines/${encodeURIComponent(machine.id)}/status`, {
+      method: "PUT",
+      body: JSON.stringify({ status, note }),
+    });
+  }
+
+  async function handleAdvanceOrder(order: Order, stage: OrderStage, status: OrderStatus) {
+    const { error } = await mutate(async () => {
+      let nextMachine = order.machine;
+      const previousMachine = machineByName.get(order.machine);
+      const workingMachines = machines.map((machine) => ({ ...machine }));
+
+      if (previousMachine?.status === "In Use") {
+        await updateMachineStatus(previousMachine, "Available", `Released from order ${order.id}`);
+        const localPrevious = workingMachines.find((machine) => machine.id === previousMachine.id);
+        if (localPrevious) {
+          localPrevious.status = "Available";
+        }
+      }
+
+      if (stage === "Washing") {
+        const washer = workingMachines.find((machine) => machine.type === "Washer" && machine.status === "Available");
+        nextMachine = washer ? washer.name : "Waiting for washer";
+        if (washer) {
+          await updateMachineStatus(washer, "In Use", `Assigned to order ${order.id}`);
+        }
+      } else if (stage === "Drying") {
+        const dryer = workingMachines.find((machine) => machine.type === "Dryer" && machine.status === "Available");
+        nextMachine = dryer ? dryer.name : "Waiting for dryer";
+        if (dryer) {
+          await updateMachineStatus(dryer, "In Use", `Assigned to order ${order.id}`);
+        }
+      } else if (stage === "Folding") {
+        nextMachine = "Folding area";
+      } else if (stage === "Ready for Pickup") {
+        nextMachine = "Pickup shelf";
+      } else if (stage === "Claimed" || stage === "Cancelled") {
+        nextMachine = stage;
+      }
+
+      return apiRequest<OrderResponse>(`/api/orders/${encodeURIComponent(order.id)}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ stage, status, machine: nextMachine, note: `Admin action changed order to ${stage}` }),
+      });
+    });
+
+    return error;
+  }
+
+  async function handleCreateOrder(form: LaundryForm) {
     if (!currentUser) {
       return "Please login again.";
     }
@@ -1563,28 +1697,38 @@ export default function App() {
       return "Enter a valid laundry weight in kilos.";
     }
 
-    const orderTotal = roundMoney(kilograms * pricePerKilo);
-    const order: Order = {
-      id: makeId("WM"),
-      customerId: currentUser.id,
-      customerName: currentUser.name,
-      kilograms,
-      ratePerKilo: pricePerKilo,
-      total: orderTotal,
-      paymentMethod: form.paymentMethod,
-      paymentStatus: form.paymentMethod === "Cash" ? "Pay on pickup" : "Paid",
-      stage: "Received",
-      status: "Pending",
-      machine: "Not assigned",
-      createdAt: new Date().toISOString(),
-    };
+    const { error } = await mutate(() =>
+      apiRequest<OrderResponse>("/api/orders", {
+        method: "POST",
+        body: JSON.stringify({
+          customerId: currentUser.id,
+          customerName: currentUser.name,
+          kilograms,
+          ratePerKilo: pricePerKilo,
+          total: roundMoney(kilograms * pricePerKilo),
+          paymentMethod: form.paymentMethod,
+          paymentStatus: form.paymentMethod === "Cash" ? "Pay on pickup" : "Paid",
+        }),
+      }),
+    );
 
-    setOrders((current) => [order, ...current]);
-    return null;
+    return error;
+  }
+
+  if (initializing) {
+    return <LoadingScreen />;
   }
 
   if (!currentUser) {
-    return <LoginScreen users={users} onLogin={handleLogin} onRegister={handleRegisterCustomer} />;
+    return (
+      <LoginScreen
+        onLogin={handleLogin}
+        onRegister={handleRegisterCustomer}
+        apiError={apiError}
+        onRefresh={() => void refreshData()}
+        loading={loading}
+      />
+    );
   }
 
   if (currentUser.role === "admin") {
@@ -1595,7 +1739,11 @@ export default function App() {
         orders={orders}
         machines={machines}
         pricePerKilo={pricePerKilo}
+        apiError={apiError}
+        lastSync={lastSync}
+        loading={loading}
         onLogout={handleLogout}
+        onRefresh={() => void refreshData()}
         onAddCustomer={handleAddCustomer}
         onAdvanceOrder={handleAdvanceOrder}
         onMachineStatusChange={handleMachineStatusChange}
@@ -1611,7 +1759,11 @@ export default function App() {
       currentUser={currentUser}
       orders={orders}
       pricePerKilo={pricePerKilo}
+      apiError={apiError}
+      lastSync={lastSync}
+      loading={loading}
       onLogout={handleLogout}
+      onRefresh={() => void refreshData()}
       onCreateOrder={handleCreateOrder}
     />
   );
