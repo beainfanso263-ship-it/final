@@ -9,6 +9,7 @@ dotenv.config();
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const SERVER_RELEASE = "washmate-api-no-external-cors-2026-05-19";
 
 app.use((req, res, next) => {
   const allowedOrigin = process.env.CORS_ORIGIN || "*";
@@ -144,6 +145,19 @@ app.get(
 );
 
 app.get(
+  "/api/debug/version",
+  asyncRoute(async (_req, res) => {
+    res.json({
+      success: true,
+      release: SERVER_RELEASE,
+      node: process.version,
+      externalCorsImport: false,
+      renderCommit: process.env.RENDER_GIT_COMMIT || process.env.RENDER_EXTERNAL_HOSTNAME || "not set",
+    });
+  }),
+);
+
+app.get(
   "/api/debug/tables",
   asyncRoute(async (_req, res) => {
     const tables = [
@@ -157,12 +171,18 @@ app.get(
     ];
 
     const counts = {};
+    const errors = {};
     for (const table of tables) {
-      const [rows] = await pool.query(`SELECT COUNT(*) AS total FROM ${table}`);
-      counts[table] = Number(rows[0].total);
+      try {
+        const [rows] = await pool.query(`SELECT COUNT(*) AS total FROM ${table}`);
+        counts[table] = Number(rows[0].total);
+      } catch (error) {
+        counts[table] = null;
+        errors[table] = error.message;
+      }
     }
 
-    res.json({ success: true, counts });
+    res.json({ success: Object.keys(errors).length === 0, counts, errors });
   }),
 );
 
@@ -519,4 +539,8 @@ app.use((err, req, res, _next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Server release: ${SERVER_RELEASE}`);
+  console.log("CORS mode: built-in middleware, no external cors import");
+});
