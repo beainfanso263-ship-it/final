@@ -14,6 +14,19 @@ const __dirname = path.dirname(__filename);
 app.use(cors());
 app.use(express.json());
 
+app.use((req, res, next) => {
+  const requestId = req.get("X-Trace-Id") || `srv-${Date.now().toString(36)}-${Math.floor(Math.random() * 900 + 100)}`;
+  req.requestId = requestId;
+  res.setHeader("X-Trace-Id", requestId);
+
+  const startedAt = Date.now();
+  res.on("finish", () => {
+    console.log(`[${requestId}] ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - startedAt}ms`);
+  });
+
+  next();
+});
+
 function buildDatabaseConfig() {
   const serviceUri = process.env.MYSQL_URI || process.env.MYSQL_URL || process.env.DATABASE_URL;
 
@@ -98,6 +111,47 @@ app.get(
   asyncRoute(async (_req, res) => {
     await pool.query("SELECT 1 AS ok");
     res.json({ success: true, database: "connected" });
+  }),
+);
+
+app.get(
+  "/api/debug/config",
+  asyncRoute(async (_req, res) => {
+    res.json({
+      success: true,
+      api: "Washmate Express API",
+      mysql: {
+        hasUri: Boolean(process.env.MYSQL_URI || process.env.MYSQL_URL || process.env.DATABASE_URL),
+        host: process.env.MYSQL_HOST || "from service URI",
+        port: process.env.MYSQL_PORT || "from service URI or 3306",
+        database: process.env.MYSQL_DATABASE || "from service URI",
+        userConfigured: Boolean(process.env.MYSQL_USER || process.env.MYSQL_URI || process.env.MYSQL_URL || process.env.DATABASE_URL),
+        passwordConfigured: Boolean(process.env.MYSQL_PASSWORD || process.env.MYSQL_URI || process.env.MYSQL_URL || process.env.DATABASE_URL),
+      },
+    });
+  }),
+);
+
+app.get(
+  "/api/debug/tables",
+  asyncRoute(async (_req, res) => {
+    const tables = [
+      "accounts",
+      "machines",
+      "pricing",
+      "orders",
+      "order_status_history",
+      "payments",
+      "maintenance_reports",
+    ];
+
+    const counts = {};
+    for (const table of tables) {
+      const [rows] = await pool.query(`SELECT COUNT(*) AS total FROM ${table}`);
+      counts[table] = Number(rows[0].total);
+    }
+
+    res.json({ success: true, counts });
   }),
 );
 
@@ -447,10 +501,10 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   console.error(err);
   const status = err.code === "ER_DUP_ENTRY" ? 409 : 500;
-  res.status(status).json({ success: false, error: err.message });
+  res.status(status).json({ success: false, error: err.message, traceId: req.requestId });
 });
 
 const PORT = process.env.PORT || 3000;
