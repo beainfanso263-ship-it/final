@@ -24,7 +24,7 @@ app.use((req, res, next) => {
 
   next();
 });
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 app.use((req, res, next) => {
   const requestId = req.get("X-Trace-Id") || `srv-${Date.now().toString(36)}-${Math.floor(Math.random() * 900 + 100)}`;
@@ -112,6 +112,13 @@ function normalizeMachine(row) {
   };
 }
 
+function normalizePayment(row) {
+  return {
+    ...row,
+    amount: Number(row.amount),
+  };
+}
+
 async function getCurrentPricePerKilo() {
   const [rows] = await pool.query("SELECT pricePerKilo FROM pricing WHERE id = 1 LIMIT 1");
   return Number(rows[0]?.pricePerKilo || 75);
@@ -194,12 +201,20 @@ app.get(
     );
     const [orders] = await pool.query("SELECT * FROM orders ORDER BY createdAt DESC");
     const [machines] = await pool.query("SELECT * FROM machines ORDER BY name ASC");
+    const [payments] = await pool.query(
+      `SELECT payments.*, accounts.name AS customerName, orders.customerName AS orderCustomerName
+       FROM payments
+       LEFT JOIN accounts ON accounts.id = payments.customerId
+       LEFT JOIN orders ON orders.id = payments.orderId
+       ORDER BY payments.paidAt DESC`,
+    );
     const pricePerKilo = await getCurrentPricePerKilo();
 
     res.json({
       users: accounts.map(publicAccount),
       orders: orders.map(normalizeOrder),
       machines: machines.map(normalizeMachine),
+      payments: payments.map(normalizePayment),
       pricePerKilo,
     });
   }),
@@ -304,7 +319,8 @@ app.post(
     const ratePerKilo = Number(req.body.ratePerKilo || (await getCurrentPricePerKilo()));
     const total = Number(req.body.total || Math.round(kilograms * ratePerKilo * 100) / 100);
     const paymentMethod = req.body.paymentMethod || "Cash";
-    const paymentStatus = req.body.paymentStatus || (paymentMethod === "Cash" ? "Pay on pickup" : "Paid");
+    const paymentStatus =
+      req.body.paymentStatus || (paymentMethod === "Cash" ? "Pay on pickup" : paymentMethod === "GCash" ? "Pending confirmation" : "Paid");
 
     if (!customerId || !Number.isFinite(kilograms) || kilograms <= 0) {
       res.status(400).json({ success: false, message: "Customer and valid kilograms are required" });
@@ -500,8 +516,30 @@ app.put(
 app.get(
   "/api/payments",
   asyncRoute(async (_req, res) => {
-    const [rows] = await pool.query("SELECT * FROM payments ORDER BY paidAt DESC");
-    res.json(rows);
+    const [rows] = await pool.query(
+      `SELECT payments.*, accounts.name AS customerName, orders.customerName AS orderCustomerName
+       FROM payments
+       LEFT JOIN accounts ON accounts.id = payments.customerId
+       LEFT JOIN orders ON orders.id = payments.orderId
+       ORDER BY payments.paidAt DESC`,
+    );
+    res.json(rows.map(normalizePayment));
+  }),
+);
+
+app.get(
+  "/api/payments/customer/:customerId",
+  asyncRoute(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT payments.*, accounts.name AS customerName, orders.customerName AS orderCustomerName
+       FROM payments
+       LEFT JOIN accounts ON accounts.id = payments.customerId
+       LEFT JOIN orders ON orders.id = payments.orderId
+       WHERE payments.customerId = ?
+       ORDER BY payments.paidAt DESC`,
+      [req.params.customerId],
+    );
+    res.json(rows.map(normalizePayment));
   }),
 );
 
@@ -509,18 +547,46 @@ app.post(
   "/api/payments",
   asyncRoute(async (req, res) => {
     const id = req.body.id || makeId("pay");
-    const { orderId, customerId, amount, method, status, referenceNo } = req.body;
+    const { orderId, customerId, amount, method, referenceNo, receiptData, receiptFileName } = req.body;
+
+    if (!orderId || !customerId || !referenceNo || !receiptData) {
+      res.status(400).json({ success: false, message: "Order, customer, reference number, and receipt upload are required" });
+      return;
+    }
 
     await pool.query(
-      "INSERT INTO payments (id, orderId, customerId, amount, method, status, referenceNo, paidAt) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())",
-      [id, orderId, customerId, amount, method || "Cash", status || "Paid", referenceNo || null],
+      `INSERT INTO payments
+        (id, orderId, customerId, amount, method, status, referenceNo, receiptData, receiptFileName, paidAt)
+       VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?, ?, NOW())`,
+      [id, orderId, customerId, amount, method || "GCash", referenceNo, receiptData, receiptFileName || "gcash-receipt"],
     );
 
     if (orderId) {
-      await pool.query("UPDATE orders SET paymentStatus = ? WHERE id = ?", [status || "Paid", orderId]);
+      await pool.query("UPDATE orders SET paymentStatus = ? WHERE id = ?", ["Pending confirmation", orderId]);
     }
 
     res.status(201).json({ success: true, id });
+  }),
+);
+
+app.put(
+  "/api/payments/:id/confirm",
+  asyncRoute(async (req, res) => {
+    const confirmedBy = req.body.confirmedBy || null;
+
+    await pool.query("UPDATE payments SET status = 'Paid', confirmedAt = NOW(), confirmedBy = ? WHERE id = ?", [
+      confirmedBy,
+      req.params.id,
+    ]);
+
+    const [[payment]] = await pool.query("SELECT * FROM payments WHERE id = ? LIMIT 1", [req.params.id]);
+    if (!payment) {
+      res.status(404).json({ success: false, message: "Payment not found" });
+      return;
+    }
+
+    await pool.query("UPDATE orders SET paymentStatus = 'Paid' WHERE id = ?", [payment.orderId]);
+    res.json({ success: true, payment: normalizePayment(payment) });
   }),
 );
 
