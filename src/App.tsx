@@ -417,7 +417,7 @@ function ConnectionPanel({
     <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
         <div>
-          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">Aiven data source</p>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">washmate data source</p>
           <p className="mt-2 text-sm text-slate-600">
             API base: <span className="font-bold text-slate-900">{API_BASE_URL || "same origin"}</span>
           </p>
@@ -503,12 +503,11 @@ function LoginScreen({
           <div className="max-w-2xl space-y-5">
             <p className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">Laundromat System</p>
             <p className="max-w-xl text-base leading-8 text-slate-200 sm:text-lg">
-              Login, customer accounts, orders, machine status, and price per kilo are loaded from your Aiven MySQL
-              records through the Express API.
+              Login, customer accounts, orders, machine status, and price per kilo are loaded from your washmate.
             </p>
           </div>
           <div className="max-w-xl border-l border-white/25 pl-5 text-sm text-slate-200">
-            <span className="block text-2xl font-black text-white">Live Aiven records</span>
+            <span className="block text-2xl font-black text-white">Washmate records</span>
             If a table is empty, this dashboard will show an empty state instead of sample data.
           </div>
         </section>
@@ -554,7 +553,7 @@ function LoginScreen({
           {mode === "login" ? (
             <form onSubmit={submitLogin} className="mt-5 space-y-4">
               <div className="space-y-2">
-                <FieldLabel>Email or username from Aiven accounts table</FieldLabel>
+                <FieldLabel>Email or username from accounts table</FieldLabel>
                 <TextInput
                   value={loginForm.email}
                   onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
@@ -662,7 +661,7 @@ function DashboardShell({
             <LogoMark dark />
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-600">Washmate</p>
-              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Aiven Dashboard</h1>
+              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Dashboard</h1>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -772,7 +771,7 @@ function AdminDashboard({
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Admin Workspace</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Aiven records control room</h2>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Washmate control room</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
               Every table, count, order, customer, machine, and price is fetched from the Express API connected to Aiven
               MySQL. No sample data is injected in the frontend.
@@ -820,7 +819,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitCustomer} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Add customer account</h3>
-              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the Aiven accounts table.</p>
+              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the accounts table.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Full name</FieldLabel>
@@ -1001,7 +1000,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Update Aiven price
+                  Update price
                 </PrimaryButton>
               </div>
             </form>
@@ -1045,7 +1044,7 @@ function AdminOrders({
   }
 
   if (!orders.length) {
-    return <EmptyState title="No order rows" text="Orders from Aiven will appear here after customers submit laundry." />;
+    return <EmptyState title="No order rows" text="Orders from washmate will appear here after customers submit laundry." />;
   }
 
   return (
