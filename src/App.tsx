@@ -3,6 +3,7 @@ import {
   useMemo,
   useState,
   type ButtonHTMLAttributes,
+  type ChangeEvent,
   type FormEvent,
   type InputHTMLAttributes,
   type ReactNode,
@@ -21,6 +22,7 @@ type OrderStage =
 type OrderStatus = "Pending" | "Running" | "Ready" | "Completed" | "Cancelled";
 type MachineStatus = "Available" | "In Use" | "Maintenance" | "Cleaning" | "Out of Service";
 type MachineType = "Washer" | "Dryer" | "Folding Station";
+type PaymentStatus = "Pending" | "Paid" | "Failed" | "Refunded";
 
 type AppUser = {
   id: string;
@@ -40,7 +42,7 @@ type Order = {
   ratePerKilo: number;
   total: number;
   paymentMethod: "Cash" | "GCash" | "Card";
-  paymentStatus: "Paid" | "Pay on pickup" | "Refunded";
+  paymentStatus: "Paid" | "Pay on pickup" | "Pending confirmation" | "Refunded";
   stage: OrderStage;
   status: OrderStatus;
   machine: string;
@@ -56,11 +58,36 @@ type Machine = {
   note: string;
 };
 
+type Payment = {
+  id: string;
+  orderId: string;
+  customerId: string;
+  customerName?: string;
+  orderCustomerName?: string;
+  amount: number;
+  method: "Cash" | "GCash" | "Card";
+  status: PaymentStatus;
+  referenceNo: string;
+  receiptData: string;
+  receiptFileName: string;
+  paidAt: string;
+  confirmedAt?: string | null;
+  confirmedBy?: string | null;
+};
+
 type BootstrapData = {
   users: AppUser[];
   orders: Order[];
   machines: Machine[];
+  payments: Payment[];
   pricePerKilo: number;
+};
+
+type PaymentForm = {
+  orderId: string;
+  referenceNo: string;
+  receiptData: string;
+  receiptFileName: string;
 };
 
 type CustomerForm = {
@@ -98,6 +125,13 @@ type RegisterResponse = {
 type OrderResponse = {
   success: boolean;
   order: Order;
+  message?: string;
+};
+
+type PaymentResponse = {
+  success: boolean;
+  id?: string;
+  payment?: Payment;
   message?: string;
 };
 
@@ -375,6 +409,21 @@ function StagePill({ stage }: { stage: OrderStage }) {
   return <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">{stage}</span>;
 }
 
+function PaymentStatusPill({ status }: { status: PaymentStatus }) {
+  const styles: Record<PaymentStatus, string> = {
+    Pending: "bg-amber-100 text-amber-800 ring-amber-200",
+    Paid: "bg-emerald-100 text-emerald-800 ring-emerald-200",
+    Failed: "bg-rose-100 text-rose-800 ring-rose-200",
+    Refunded: "bg-slate-200 text-slate-800 ring-slate-300",
+  };
+
+  return (
+    <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-bold ring-1 ${styles[status]}`}>
+      {status === "Paid" ? "Payment confirmed" : status}
+    </span>
+  );
+}
+
 function EmptyState({ title, text }: { title: string; text: string }) {
   return (
     <div className="rounded-[2rem] border border-dashed border-slate-300 bg-white p-8 text-center">
@@ -391,7 +440,7 @@ function ApiAlert({ error, onRefresh }: { error: string; onRefresh?: () => void 
 
   return (
     <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection error</p>
+      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection or database error</p>
       <p className="mt-2 break-words text-sm font-semibold">{error}</p>
       {onRefresh ? (
         <button type="button" onClick={onRefresh} className="mt-4 text-sm font-black text-rose-900 underline">
@@ -417,7 +466,7 @@ function ConnectionPanel({
     <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
         <div>
-          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">washmate data source</p>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">Aiven data source</p>
           <p className="mt-2 text-sm text-slate-600">
             API base: <span className="font-bold text-slate-900">{API_BASE_URL || "same origin"}</span>
           </p>
@@ -425,7 +474,7 @@ function ConnectionPanel({
             Last sync: <span className="font-bold text-slate-900">{lastSync ? new Date(lastSync).toLocaleString() : "not yet synced"}</span>
           </p>
           <p className={`mt-2 text-sm font-bold ${error ? "text-rose-600" : "text-emerald-600"}`}>
-            {error ? "Live sync needs attention" : "Showing live records"}
+            {error ? "Live database sync needs attention" : "Showing live records from the API"}
           </p>
         </div>
         <SecondaryButton type="button" onClick={onRefresh} disabled={loading}>
@@ -503,11 +552,12 @@ function LoginScreen({
           <div className="max-w-2xl space-y-5">
             <p className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">Laundromat System</p>
             <p className="max-w-xl text-base leading-8 text-slate-200 sm:text-lg">
-              Login, customer accounts, orders, machine status, and price per kilo are loaded from your washmate.
+              Login, customer accounts, orders, machine status, and price per kilo are loaded from your Aiven MySQL
+              records through the Express API.
             </p>
           </div>
           <div className="max-w-xl border-l border-white/25 pl-5 text-sm text-slate-200">
-            <span className="block text-2xl font-black text-white">Washmate records</span>
+            <span className="block text-2xl font-black text-white">Live Aiven records</span>
             If a table is empty, this dashboard will show an empty state instead of sample data.
           </div>
         </section>
@@ -553,7 +603,7 @@ function LoginScreen({
           {mode === "login" ? (
             <form onSubmit={submitLogin} className="mt-5 space-y-4">
               <div className="space-y-2">
-                <FieldLabel>Email or username from accounts table</FieldLabel>
+                <FieldLabel>Email or username from Aiven accounts table</FieldLabel>
                 <TextInput
                   value={loginForm.email}
                   onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
@@ -574,7 +624,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Checking" : "Sign in"}
+                {submitting ? "Checking Aiven..." : "Sign in"}
               </PrimaryButton>
             </form>
           ) : (
@@ -630,7 +680,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Saving..." : "Create customer account"}
+                {submitting ? "Saving to Aiven..." : "Create customer account"}
               </PrimaryButton>
             </form>
           )}
@@ -661,7 +711,7 @@ function DashboardShell({
             <LogoMark dark />
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-600">Washmate</p>
-              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Dashboard</h1>
+              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Aiven Dashboard</h1>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -686,6 +736,7 @@ function AdminDashboard({
   users,
   orders,
   machines,
+  payments,
   pricePerKilo,
   apiError,
   lastSync,
@@ -698,11 +749,13 @@ function AdminDashboard({
   onMachineNoteChange,
   onAddMachine,
   onPriceChange,
+  onConfirmPayment,
 }: {
   currentUser: AppUser;
   users: AppUser[];
   orders: Order[];
   machines: Machine[];
+  payments: Payment[];
   pricePerKilo: number;
   apiError: string;
   lastSync: string | null;
@@ -715,8 +768,9 @@ function AdminDashboard({
   onMachineNoteChange: (machine: Machine, note: string) => Promise<string | null>;
   onAddMachine: (form: MachineForm) => Promise<string | null>;
   onPriceChange: (rate: number) => Promise<string | null>;
+  onConfirmPayment: (payment: Payment) => Promise<string | null>;
 }) {
-  const [activeTab, setActiveTab] = useState<"orders" | "customers" | "machines" | "pricing">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "payments" | "customers" | "machines" | "pricing">("orders");
   const [customerForm, setCustomerForm] = useState<CustomerForm>({ name: "", email: "", phone: "", password: "" });
   const [machineForm, setMachineForm] = useState<MachineForm>({
     name: "",
@@ -734,13 +788,14 @@ function AdminDashboard({
   const customerUsers = users.filter((user) => user.role === "customer");
   const runningOrders = orders.filter((order) => order.status === "Running").length;
   const availableMachines = machines.filter((machine) => machine.status === "Available").length;
+  const pendingPayments = payments.filter((payment) => payment.status === "Pending").length;
 
   async function submitCustomer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     const result = await onAddCustomer(customerForm);
     setSubmitting(false);
-    setMessage(result ?? "Customer account saved.");
+    setMessage(result ?? "Customer account saved to Aiven.");
     if (!result) {
       setCustomerForm({ name: "", email: "", phone: "", password: "" });
     }
@@ -751,7 +806,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onAddMachine(machineForm);
     setSubmitting(false);
-    setMessage(result ?? "Machine saved.");
+    setMessage(result ?? "Machine saved to Aiven.");
     if (!result) {
       setMachineForm({ name: "", type: "Washer", capacityKg: "8", status: "Available", note: "" });
     }
@@ -762,7 +817,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onPriceChange(Number(priceInput));
     setSubmitting(false);
-    setMessage(result ?? "Price per kilo updated.");
+    setMessage(result ?? "Price per kilo updated in Aiven.");
   }
 
   return (
@@ -771,13 +826,14 @@ function AdminDashboard({
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Admin Workspace</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Washmate control room</h2>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Aiven records control room</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-             
+              Every table, count, order, customer, machine, and price is fetched from the Express API connected to Aiven
+              MySQL. No sample data is injected in the frontend.
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">
-            {runningOrders} running orders, {availableMachines} available machines, {customerUsers.length} customers
+            {runningOrders} running orders, {pendingPayments} pending payments, {availableMachines} available machines
           </p>
         </div>
 
@@ -787,6 +843,7 @@ function AdminDashboard({
         <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-3">
           {[
             ["orders", "All Orders"],
+            ["payments", "Payments"],
             ["customers", "Customers"],
             ["machines", "Maintenance"],
             ["pricing", "Price Per Kilo"],
@@ -814,11 +871,15 @@ function AdminDashboard({
           <AdminOrders orders={orders} onAdvanceOrder={onAdvanceOrder} setMessage={setMessage} />
         ) : null}
 
+        {activeTab === "payments" ? (
+          <AdminPayments payments={payments} orders={orders} onConfirmPayment={onConfirmPayment} setMessage={setMessage} />
+        ) : null}
+
         {activeTab === "customers" ? (
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitCustomer} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Add customer account</h3>
-              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the accounts table.</p>
+              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the Aiven accounts table.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Full name</FieldLabel>
@@ -856,7 +917,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Create customer 
+                  Create customer in Aiven
                 </PrimaryButton>
               </div>
             </form>
@@ -974,7 +1035,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Save machine to 
+                  Save machine to Aiven
                 </PrimaryButton>
               </div>
             </form>
@@ -985,7 +1046,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
             <form onSubmit={submitPrice} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Set peso price per kilo</h3>
-              <p className="mt-1 text-sm text-slate-500">This is the update Price .</p>
+              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 in Aiven.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Price per kilo in PHP</FieldLabel>
@@ -999,13 +1060,13 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Update price
+                  Update Aiven price
                 </PrimaryButton>
               </div>
             </form>
 
             <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white">
-              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current rate</p>
+              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current database rate</p>
               <p className="mt-4 text-5xl font-black tracking-tight">{formatPeso(pricePerKilo)}</p>
               <p className="mt-3 text-slate-300">per kilo for new laundry orders</p>
               <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
@@ -1043,7 +1104,7 @@ function AdminOrders({
   }
 
   if (!orders.length) {
-    return <EmptyState title="No order rows" text="Orders from washmate will appear here after customers submit laundry." />;
+    return <EmptyState title="No order rows" text="Orders from Aiven will appear here after customers submit laundry." />;
   }
 
   return (
@@ -1136,6 +1197,111 @@ function AdminOrders({
             </div>
           ))}
         </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminPayments({
+  payments,
+  orders,
+  onConfirmPayment,
+  setMessage,
+}: {
+  payments: Payment[];
+  orders: Order[];
+  onConfirmPayment: (payment: Payment) => Promise<string | null>;
+  setMessage: (value: string) => void;
+}) {
+  const [workingPayment, setWorkingPayment] = useState("");
+
+  async function confirmPayment(payment: Payment) {
+    setWorkingPayment(payment.id);
+    const result = await onConfirmPayment(payment);
+    setWorkingPayment("");
+    setMessage(result ?? `Payment ${payment.referenceNo} confirmed.`);
+  }
+
+  function findOrder(payment: Payment) {
+    return orders.find((order) => order.id === payment.orderId);
+  }
+
+  if (!payments.length) {
+    return <EmptyState title="No payment rows" text="GCash receipt uploads from customers will appear here." />;
+  }
+
+  return (
+    <section className="rounded-[2rem] border border-slate-200 bg-white">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h3 className="text-xl font-black">Customer GCash payments</h3>
+        <p className="text-sm text-slate-500">Review uploaded receipts, reference numbers, and confirm verified payments.</p>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {payments.map((payment) => {
+          const order = findOrder(payment);
+          return (
+            <article key={payment.id} className="grid gap-5 px-5 py-5 lg:grid-cols-[130px_1fr_auto] lg:items-start">
+              <a
+                href={payment.receiptData}
+                target="_blank"
+                rel="noreferrer"
+                className="block overflow-hidden rounded-3xl border border-slate-200 bg-slate-50"
+              >
+                {payment.receiptData ? (
+                  <img src={payment.receiptData} alt="Uploaded GCash receipt" className="h-36 w-full object-cover lg:h-28" />
+                ) : (
+                  <div className="flex h-28 items-center justify-center px-3 text-center text-xs font-bold text-slate-400">
+                    No receipt preview
+                  </div>
+                )}
+              </a>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-lg font-black text-slate-900">{payment.referenceNo}</h4>
+                  <PaymentStatusPill status={payment.status} />
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  Order {payment.orderId} - {payment.customerName || payment.orderCustomerName || order?.customerName || "Unknown customer"}
+                </p>
+                <div className="mt-4 grid gap-2 text-sm text-slate-600 sm:grid-cols-3">
+                  <p>
+                    <span className="font-bold text-slate-900">Amount:</span> {formatPeso(payment.amount)}
+                  </p>
+                  <p>
+                    <span className="font-bold text-slate-900">Method:</span> {payment.method}
+                  </p>
+                  <p>
+                    <span className="font-bold text-slate-900">Uploaded:</span> {formatDate(payment.paidAt)}
+                  </p>
+                </div>
+                {payment.confirmedAt ? (
+                  <p className="mt-3 text-sm font-semibold text-emerald-700">
+                    Confirmed {formatDate(payment.confirmedAt)} by {payment.confirmedBy || "admin"}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-col gap-2 lg:items-end">
+                <a
+                  href={payment.receiptData}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-2xl border border-slate-200 px-4 py-2.5 text-center text-sm font-bold text-slate-700 transition hover:border-sky-300 hover:text-sky-700"
+                >
+                  Open receipt
+                </a>
+                {payment.status === "Pending" ? (
+                  <PrimaryButton
+                    type="button"
+                    disabled={workingPayment === payment.id}
+                    onClick={() => void confirmPayment(payment)}
+                  >
+                    {workingPayment === payment.id ? "Confirming..." : "Confirm payment"}
+                  </PrimaryButton>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -1235,9 +1401,147 @@ function ProgressLine({ order }: { order: Order }) {
   );
 }
 
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Unable to read receipt file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function GCashReceiptUpload({
+  order,
+  payment,
+  loading,
+  onSubmitPayment,
+  setMessage,
+}: {
+  order: Order;
+  payment: Payment | null;
+  loading: boolean;
+  onSubmitPayment: (form: PaymentForm) => Promise<string | null>;
+  setMessage: (value: string) => void;
+}) {
+  const [referenceNo, setReferenceNo] = useState("");
+  const [receiptData, setReceiptData] = useState("");
+  const [receiptFileName, setReceiptFileName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      setReceiptData("");
+      setReceiptFileName("");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setMessage("Please upload an image file for the GCash receipt.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 4 * 1024 * 1024) {
+      setMessage("Receipt image is too large. Please upload an image below 4 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setReceiptData(dataUrl);
+      setReceiptFileName(file.name);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to read receipt file.");
+    }
+  }
+
+  async function submitReceipt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!referenceNo.trim() || !receiptData) {
+      setMessage("Reference number and receipt image are required.");
+      return;
+    }
+
+    setSaving(true);
+    const result = await onSubmitPayment({
+      orderId: order.id,
+      referenceNo: referenceNo.trim(),
+      receiptData,
+      receiptFileName,
+    });
+    setSaving(false);
+    setMessage(result ?? "GCash payment uploaded. Please wait for admin confirmation.");
+    if (!result) {
+      setReferenceNo("");
+      setReceiptData("");
+      setReceiptFileName("");
+    }
+  }
+
+  if (order.paymentMethod !== "GCash") {
+    return null;
+  }
+
+  if (payment) {
+    return (
+      <div className="mt-6 rounded-3xl bg-slate-50 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-black text-slate-900">GCash reference: {payment.referenceNo}</p>
+            <p className="text-xs text-slate-500">Uploaded {formatDate(payment.paidAt)}</p>
+          </div>
+          <PaymentStatusPill status={payment.status} />
+        </div>
+        <div className="mt-4 grid gap-4 sm:grid-cols-[110px_1fr] sm:items-center">
+          {payment.receiptData ? (
+            <a href={payment.receiptData} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-slate-200 bg-white">
+              <img src={payment.receiptData} alt="Uploaded GCash receipt" className="h-24 w-full object-cover" />
+            </a>
+          ) : null}
+          <p className="text-sm text-slate-600">
+            {payment.status === "Paid"
+              ? "Your payment has been confirmed by the admin."
+              : "Your receipt is waiting for admin confirmation."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={submitReceipt} className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+      <h4 className="font-black text-amber-950">Upload GCash receipt</h4>
+      <p className="mt-1 text-sm text-amber-800">Enter your GCash reference number and upload a receipt image for admin review.</p>
+      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
+        <div className="space-y-2">
+          <FieldLabel>Reference number</FieldLabel>
+          <TextInput value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} required />
+        </div>
+        <div className="space-y-2">
+          <FieldLabel>Receipt image</FieldLabel>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => void handleFileChange(event)}
+            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-bold file:text-sky-700 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+            required
+          />
+        </div>
+        <PrimaryButton type="submit" disabled={saving || loading}>
+          {saving ? "Uploading..." : "Upload"}
+        </PrimaryButton>
+      </div>
+      {receiptFileName ? <p className="mt-3 text-xs font-semibold text-amber-800">Selected: {receiptFileName}</p> : null}
+    </form>
+  );
+}
+
 function CustomerDashboard({
   currentUser,
   orders,
+  payments,
   pricePerKilo,
   apiError,
   lastSync,
@@ -1245,9 +1549,11 @@ function CustomerDashboard({
   onLogout,
   onRefresh,
   onCreateOrder,
+  onSubmitPayment,
 }: {
   currentUser: AppUser;
   orders: Order[];
+  payments: Payment[];
   pricePerKilo: number;
   apiError: string;
   lastSync: string | null;
@@ -1255,6 +1561,7 @@ function CustomerDashboard({
   onLogout: () => void;
   onRefresh: () => void;
   onCreateOrder: (form: LaundryForm) => Promise<string | null>;
+  onSubmitPayment: (form: PaymentForm) => Promise<string | null>;
 }) {
   const [activeTab, setActiveTab] = useState<"book" | "orders" | "rates">("book");
   const [laundryForm, setLaundryForm] = useState<LaundryForm>({ kilograms: "", paymentMethod: "Cash" });
@@ -1262,15 +1569,20 @@ function CustomerDashboard({
   const [submitting, setSubmitting] = useState(false);
 
   const customerOrders = orders.filter((order) => order.customerId === currentUser.id);
+  const customerPayments = payments.filter((payment) => payment.customerId === currentUser.id);
   const kilograms = Number(laundryForm.kilograms);
   const total = Number.isFinite(kilograms) && kilograms > 0 ? roundMoney(kilograms * pricePerKilo) : 0;
+
+  function latestPaymentFor(orderId: string) {
+    return customerPayments.find((payment) => payment.orderId === orderId) || null;
+  }
 
   async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     const result = await onCreateOrder(laundryForm);
     setSubmitting(false);
-    setMessage(result ?? "Laundry order saved. Admin can now mark it as washing.");
+    setMessage(result ?? "Laundry order saved to Aiven. Upload a GCash receipt if you selected GCash.");
     if (!result) {
       setLaundryForm({ kilograms: "", paymentMethod: "Cash" });
     }
@@ -1283,7 +1595,9 @@ function CustomerDashboard({
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Customer Portal</p>
             <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Book and track laundry</h2>
-
+            <p className="mt-3 max-w-3xl text-slate-600">
+              Price, orders, and status are loaded from the Aiven-backed API. Refresh to re-query the database.
+            </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">Current price: {formatPeso(pricePerKilo)} per kg</p>
         </div>
@@ -1347,7 +1661,7 @@ function CustomerDashboard({
                   </SelectInput>
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  {submitting ? "Saving order..." : "Submit order to Washmate"}
+                  {submitting ? "Saving order..." : "Submit order to Aiven"}
                 </PrimaryButton>
               </div>
             </form>
@@ -1406,6 +1720,13 @@ function CustomerDashboard({
                   <div className="mt-6">
                     <ProgressLine order={order} />
                   </div>
+                  <GCashReceiptUpload
+                    order={order}
+                    payment={latestPaymentFor(order.id)}
+                    loading={loading}
+                    onSubmitPayment={onSubmitPayment}
+                    setMessage={setMessage}
+                  />
                 </article>
               ))
             ) : (
@@ -1417,7 +1738,7 @@ function CustomerDashboard({
         {activeTab === "rates" ? (
           <section className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
             <h3 className="text-xl font-black">Customer price list</h3>
-            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo.</p>
+            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo in Aiven.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 3, 5, 10].map((kilo) => (
                 <div key={kilo} className="rounded-3xl bg-slate-50 p-5">
@@ -1440,7 +1761,7 @@ function LoadingScreen() {
         <div className="mx-auto mb-5 flex justify-center">
           <LogoMark />
         </div>
-        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting</p>
+        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting to Aiven</p>
         <h1 className="mt-3 text-4xl font-black tracking-tight">Loading Washmate records</h1>
         <p className="mt-3 text-slate-300">Requesting /api/bootstrap from the Express server.</p>
       </div>
@@ -1452,6 +1773,7 @@ export default function App() {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [pricePerKilo, setPricePerKilo] = useState(0);
   const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
   const [initializing, setInitializing] = useState(true);
@@ -1469,6 +1791,7 @@ export default function App() {
       setUsers(nextUsers);
       setOrders((data.orders || []).map((order) => ({ ...order, kilograms: Number(order.kilograms), total: Number(order.total) })));
       setMachines((data.machines || []).map((machine) => ({ ...machine, capacityKg: Number(machine.capacityKg) })));
+      setPayments((data.payments || []).map((payment) => ({ ...payment, amount: Number(payment.amount) })));
       setPricePerKilo(Number(data.pricePerKilo || 0));
       setLastSync(new Date().toISOString());
       setApiError("");
@@ -1703,8 +2026,52 @@ export default function App() {
           ratePerKilo: pricePerKilo,
           total: roundMoney(kilograms * pricePerKilo),
           paymentMethod: form.paymentMethod,
-          paymentStatus: form.paymentMethod === "Cash" ? "Pay on pickup" : "Paid",
+          paymentStatus:
+            form.paymentMethod === "Cash"
+              ? "Pay on pickup"
+              : form.paymentMethod === "GCash"
+                ? "Pending confirmation"
+                : "Paid",
         }),
+      }),
+    );
+
+    return error;
+  }
+
+  async function handleSubmitPayment(form: PaymentForm) {
+    if (!currentUser) {
+      return "Please login again.";
+    }
+
+    const order = orders.find((item) => item.id === form.orderId);
+    if (!order) {
+      return "Order not found. Refresh records and try again.";
+    }
+
+    const { error } = await mutate(() =>
+      apiRequest<PaymentResponse>("/api/payments", {
+        method: "POST",
+        body: JSON.stringify({
+          orderId: order.id,
+          customerId: currentUser.id,
+          amount: order.total,
+          method: "GCash",
+          referenceNo: form.referenceNo,
+          receiptData: form.receiptData,
+          receiptFileName: form.receiptFileName,
+        }),
+      }),
+    );
+
+    return error;
+  }
+
+  async function handleConfirmPayment(payment: Payment) {
+    const { error } = await mutate(() =>
+      apiRequest<PaymentResponse>(`/api/payments/${encodeURIComponent(payment.id)}/confirm`, {
+        method: "PUT",
+        body: JSON.stringify({ confirmedBy: currentUser?.name || "Admin" }),
       }),
     );
 
@@ -1734,6 +2101,7 @@ export default function App() {
         users={users}
         orders={orders}
         machines={machines}
+        payments={payments}
         pricePerKilo={pricePerKilo}
         apiError={apiError}
         lastSync={lastSync}
@@ -1746,6 +2114,7 @@ export default function App() {
         onMachineNoteChange={handleMachineNoteChange}
         onAddMachine={handleAddMachine}
         onPriceChange={handlePriceChange}
+        onConfirmPayment={handleConfirmPayment}
       />
     );
   }
@@ -1754,6 +2123,7 @@ export default function App() {
     <CustomerDashboard
       currentUser={currentUser}
       orders={orders}
+      payments={payments}
       pricePerKilo={pricePerKilo}
       apiError={apiError}
       lastSync={lastSync}
@@ -1761,6 +2131,7 @@ export default function App() {
       onLogout={handleLogout}
       onRefresh={() => void refreshData()}
       onCreateOrder={handleCreateOrder}
+      onSubmitPayment={handleSubmitPayment}
     />
   );
 }
