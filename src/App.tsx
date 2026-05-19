@@ -23,6 +23,7 @@ type OrderStatus = "Pending" | "Running" | "Ready" | "Completed" | "Cancelled";
 type MachineStatus = "Available" | "In Use" | "Maintenance" | "Cleaning" | "Out of Service";
 type MachineType = "Washer" | "Dryer" | "Folding Station";
 type PaymentStatus = "Pending" | "Paid" | "Failed" | "Refunded";
+type PaymentMethod = "Cash" | "GCash";
 
 type AppUser = {
   id: string;
@@ -41,7 +42,7 @@ type Order = {
   kilograms: number;
   ratePerKilo: number;
   total: number;
-  paymentMethod: "Cash" | "GCash" | "Card";
+  paymentMethod: PaymentMethod;
   paymentStatus: "Paid" | "Pay on pickup" | "Pending confirmation" | "Refunded";
   stage: OrderStage;
   status: OrderStatus;
@@ -65,7 +66,7 @@ type Payment = {
   customerName?: string;
   orderCustomerName?: string;
   amount: number;
-  method: "Cash" | "GCash" | "Card";
+  method: PaymentMethod;
   status: PaymentStatus;
   referenceNo: string;
   receiptData: string;
@@ -81,13 +82,6 @@ type BootstrapData = {
   machines: Machine[];
   payments: Payment[];
   pricePerKilo: number;
-};
-
-type PaymentForm = {
-  orderId: string;
-  referenceNo: string;
-  receiptData: string;
-  receiptFileName: string;
 };
 
 type CustomerForm = {
@@ -107,7 +101,10 @@ type MachineForm = {
 
 type LaundryForm = {
   kilograms: string;
-  paymentMethod: "Cash" | "GCash" | "Card";
+  paymentMethod: PaymentMethod;
+  referenceNo: string;
+  receiptData: string;
+  receiptFileName: string;
 };
 
 type LoginResponse = {
@@ -254,7 +251,21 @@ function safeJsonParse(value: string): unknown {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof ApiError) {
-    return `${error.message} [${error.method} ${error.url}, status ${error.status || "network"}, trace ${error.traceId}]`;
+    console.error(`[${error.traceId}] ${error.method} ${error.url} failed with status ${error.status}: ${error.message}`);
+
+    if (error.status === 400 || error.status === 401 || error.status === 409) {
+      return error.message;
+    }
+
+    if (error.status === 404) {
+      return "Unable to connect to the server. Please check that the web service is deployed with the correct start command.";
+    }
+
+    if (error.status === 0) {
+      return "Unable to reach the server. Please check your internet connection or deployment URL.";
+    }
+
+    return "Something went wrong while loading records. Please try again later.";
   }
 
   return error instanceof Error ? error.message : "Unexpected error";
@@ -433,20 +444,15 @@ function EmptyState({ title, text }: { title: string; text: string }) {
   );
 }
 
-function ApiAlert({ error, onRefresh }: { error: string; onRefresh?: () => void }) {
+function ApiAlert({ error }: { error: string; onRefresh?: () => void }) {
   if (!error) {
     return null;
   }
 
   return (
     <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection or database error</p>
+      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection issue</p>
       <p className="mt-2 break-words text-sm font-semibold">{error}</p>
-      {onRefresh ? (
-        <button type="button" onClick={onRefresh} className="mt-4 text-sm font-black text-rose-900 underline">
-          Retry API request
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -466,15 +472,12 @@ function ConnectionPanel({
     <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
         <div>
-          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">Aiven data source</p>
-          <p className="mt-2 text-sm text-slate-600">
-            API base: <span className="font-bold text-slate-900">{API_BASE_URL || "same origin"}</span>
-          </p>
+          <p className="text-sm font-black uppercase tracking-[0.24em] text-sky-600">System records</p>
           <p className="text-sm text-slate-600">
             Last sync: <span className="font-bold text-slate-900">{lastSync ? new Date(lastSync).toLocaleString() : "not yet synced"}</span>
           </p>
           <p className={`mt-2 text-sm font-bold ${error ? "text-rose-600" : "text-emerald-600"}`}>
-            {error ? "Live database sync needs attention" : "Showing live records from the API"}
+            {error ? "Records need to be refreshed" : "Showing current records"}
           </p>
         </div>
         <SecondaryButton type="button" onClick={onRefresh} disabled={loading}>
@@ -545,20 +548,20 @@ function LoginScreen({
           <div className="flex items-center gap-4">
             <LogoMark />
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.45em] text-sky-200">Database-backed</p>
+              <p className="text-sm font-bold uppercase tracking-[0.45em] text-sky-200">Online service</p>
               <h1 className="text-5xl font-black tracking-tight sm:text-7xl">Washmate</h1>
             </div>
           </div>
           <div className="max-w-2xl space-y-5">
             <p className="text-3xl font-semibold tracking-tight text-white sm:text-5xl">Laundromat System</p>
             <p className="max-w-xl text-base leading-8 text-slate-200 sm:text-lg">
-              Login, customer accounts, orders, machine status, and price per kilo are loaded from your Aiven MySQL
-              records through the Express API.
+              Login, customer accounts, orders, machine status, payment receipts, and price per kilo are managed in one
+              real-time system.
             </p>
           </div>
           <div className="max-w-xl border-l border-white/25 pl-5 text-sm text-slate-200">
-            <span className="block text-2xl font-black text-white">Live Aiven records</span>
-            If a table is empty, this dashboard will show an empty state instead of sample data.
+            <span className="block text-2xl font-black text-white">Live service records</span>
+            If there are no customers, machines, or orders yet, the dashboard will show an empty state.
           </div>
         </section>
 
@@ -603,7 +606,7 @@ function LoginScreen({
           {mode === "login" ? (
             <form onSubmit={submitLogin} className="mt-5 space-y-4">
               <div className="space-y-2">
-                <FieldLabel>Email or username from Aiven accounts table</FieldLabel>
+                <FieldLabel>Email or username</FieldLabel>
                 <TextInput
                   value={loginForm.email}
                   onChange={(event) => setLoginForm({ ...loginForm, email: event.target.value })}
@@ -624,7 +627,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Checking Aiven..." : "Sign in"}
+                {submitting ? "Checking account..." : "Sign in"}
               </PrimaryButton>
             </form>
           ) : (
@@ -680,7 +683,7 @@ function LoginScreen({
               </div>
               {formError ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{formError}</p> : null}
               <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                {submitting ? "Saving to Aiven..." : "Create customer account"}
+                {submitting ? "Saving account..." : "Create customer account"}
               </PrimaryButton>
             </form>
           )}
@@ -711,7 +714,7 @@ function DashboardShell({
             <LogoMark dark />
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-600">Washmate</p>
-              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Aiven Dashboard</h1>
+              <h1 className="text-lg font-black tracking-tight sm:text-2xl">Live Dashboard</h1>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -795,7 +798,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onAddCustomer(customerForm);
     setSubmitting(false);
-    setMessage(result ?? "Customer account saved to Aiven.");
+    setMessage(result ?? "Customer account saved.");
     if (!result) {
       setCustomerForm({ name: "", email: "", phone: "", password: "" });
     }
@@ -806,7 +809,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onAddMachine(machineForm);
     setSubmitting(false);
-    setMessage(result ?? "Machine saved to Aiven.");
+    setMessage(result ?? "Machine saved.");
     if (!result) {
       setMachineForm({ name: "", type: "Washer", capacityKg: "8", status: "Available", note: "" });
     }
@@ -817,7 +820,7 @@ function AdminDashboard({
     setSubmitting(true);
     const result = await onPriceChange(Number(priceInput));
     setSubmitting(false);
-    setMessage(result ?? "Price per kilo updated in Aiven.");
+    setMessage(result ?? "Price per kilo updated.");
   }
 
   return (
@@ -826,10 +829,9 @@ function AdminDashboard({
         <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Admin Workspace</p>
-            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Aiven records control room</h2>
+            <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Operations control room</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-              Every table, count, order, customer, machine, and price is fetched from the Express API connected to Aiven
-              MySQL. No sample data is injected in the frontend.
+              Manage orders, customer accounts, payments, machine status, and service pricing from the live system.
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">
@@ -879,7 +881,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitCustomer} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Add customer account</h3>
-              <p className="mt-1 text-sm text-slate-500">This inserts a new customer into the Aiven accounts table.</p>
+              <p className="mt-1 text-sm text-slate-500">Create a login account for a customer.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Full name</FieldLabel>
@@ -917,7 +919,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Create customer in Aiven
+                  Create customer
                 </PrimaryButton>
               </div>
             </form>
@@ -1035,7 +1037,7 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Save machine to Aiven
+                  Save machine
                 </PrimaryButton>
               </div>
             </form>
@@ -1046,7 +1048,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
             <form onSubmit={submitPrice} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Set peso price per kilo</h3>
-              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 in Aiven.</p>
+              <p className="mt-1 text-sm text-slate-500">Customers will see this rate when booking laundry.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Price per kilo in PHP</FieldLabel>
@@ -1060,13 +1062,13 @@ function AdminDashboard({
                   />
                 </div>
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  Update Aiven price
+                  Update price
                 </PrimaryButton>
               </div>
             </form>
 
             <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white">
-              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current database rate</p>
+              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current rate</p>
               <p className="mt-4 text-5xl font-black tracking-tight">{formatPeso(pricePerKilo)}</p>
               <p className="mt-3 text-slate-300">per kilo for new laundry orders</p>
               <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
@@ -1104,7 +1106,7 @@ function AdminOrders({
   }
 
   if (!orders.length) {
-    return <EmptyState title="No order rows" text="Orders from Aiven will appear here after customers submit laundry." />;
+    return <EmptyState title="No orders yet" text="Customer orders will appear here after they submit laundry." />;
   }
 
   return (
@@ -1184,7 +1186,7 @@ function AdminOrders({
 
       <div className="rounded-[2rem] border border-slate-200 bg-white p-5">
         <h3 className="text-xl font-black">Order action to status mapping</h3>
-        <p className="mt-1 text-sm text-slate-500">These are business rules, not database seed records.</p>
+        <p className="mt-1 text-sm text-slate-500">These are the status changes customers will see.</p>
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {statusActions.map((action) => (
             <div key={action.label} className="rounded-3xl bg-slate-50 p-4">
@@ -1410,29 +1412,53 @@ function fileToDataUrl(file: File) {
   });
 }
 
-function GCashReceiptUpload({
-  order,
-  payment,
+function CustomerDashboard({
+  currentUser,
+  orders,
+  payments,
+  pricePerKilo,
+  apiError,
+  lastSync,
   loading,
-  onSubmitPayment,
-  setMessage,
+  onLogout,
+  onRefresh,
+  onCreateOrder,
 }: {
-  order: Order;
-  payment: Payment | null;
+  currentUser: AppUser;
+  orders: Order[];
+  payments: Payment[];
+  pricePerKilo: number;
+  apiError: string;
+  lastSync: string | null;
   loading: boolean;
-  onSubmitPayment: (form: PaymentForm) => Promise<string | null>;
-  setMessage: (value: string) => void;
+  onLogout: () => void;
+  onRefresh: () => void;
+  onCreateOrder: (form: LaundryForm) => Promise<string | null>;
 }) {
-  const [referenceNo, setReferenceNo] = useState("");
-  const [receiptData, setReceiptData] = useState("");
-  const [receiptFileName, setReceiptFileName] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState<"book" | "orders" | "rates">("book");
+  const [laundryForm, setLaundryForm] = useState<LaundryForm>({
+    kilograms: "",
+    paymentMethod: "Cash",
+    referenceNo: "",
+    receiptData: "",
+    receiptFileName: "",
+  });
+  const [message, setMessage] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+  const customerOrders = orders.filter((order) => order.customerId === currentUser.id);
+  const customerPayments = payments.filter((payment) => payment.customerId === currentUser.id);
+  const kilograms = Number(laundryForm.kilograms);
+  const total = Number.isFinite(kilograms) && kilograms > 0 ? roundMoney(kilograms * pricePerKilo) : 0;
+
+  function latestPaymentFor(orderId: string) {
+    return customerPayments.find((payment) => payment.orderId === orderId) || null;
+  }
+
+  async function handleReceiptFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
-      setReceiptData("");
-      setReceiptFileName("");
+      setLaundryForm({ ...laundryForm, receiptData: "", receiptFileName: "" });
       return;
     }
 
@@ -1449,142 +1475,26 @@ function GCashReceiptUpload({
     }
 
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setReceiptData(dataUrl);
-      setReceiptFileName(file.name);
+      const receiptData = await fileToDataUrl(file);
+      setLaundryForm({ ...laundryForm, receiptData, receiptFileName: file.name });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to read receipt file.");
     }
   }
 
-  async function submitReceipt(event: FormEvent<HTMLFormElement>) {
+  async function submitOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!referenceNo.trim() || !receiptData) {
-      setMessage("Reference number and receipt image are required.");
+    if (laundryForm.paymentMethod === "GCash" && (!laundryForm.referenceNo.trim() || !laundryForm.receiptData)) {
+      setMessage("GCash payment requires a reference number and receipt image.");
       return;
     }
 
-    setSaving(true);
-    const result = await onSubmitPayment({
-      orderId: order.id,
-      referenceNo: referenceNo.trim(),
-      receiptData,
-      receiptFileName,
-    });
-    setSaving(false);
-    setMessage(result ?? "GCash payment uploaded. Please wait for admin confirmation.");
-    if (!result) {
-      setReferenceNo("");
-      setReceiptData("");
-      setReceiptFileName("");
-    }
-  }
-
-  if (order.paymentMethod !== "GCash") {
-    return null;
-  }
-
-  if (payment) {
-    return (
-      <div className="mt-6 rounded-3xl bg-slate-50 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-black text-slate-900">GCash reference: {payment.referenceNo}</p>
-            <p className="text-xs text-slate-500">Uploaded {formatDate(payment.paidAt)}</p>
-          </div>
-          <PaymentStatusPill status={payment.status} />
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-[110px_1fr] sm:items-center">
-          {payment.receiptData ? (
-            <a href={payment.receiptData} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-2xl border border-slate-200 bg-white">
-              <img src={payment.receiptData} alt="Uploaded GCash receipt" className="h-24 w-full object-cover" />
-            </a>
-          ) : null}
-          <p className="text-sm text-slate-600">
-            {payment.status === "Paid"
-              ? "Your payment has been confirmed by the admin."
-              : "Your receipt is waiting for admin confirmation."}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <form onSubmit={submitReceipt} className="mt-6 rounded-3xl border border-amber-200 bg-amber-50 p-4">
-      <h4 className="font-black text-amber-950">Upload GCash receipt</h4>
-      <p className="mt-1 text-sm text-amber-800">Enter your GCash reference number and upload a receipt image for admin review.</p>
-      <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_auto] lg:items-end">
-        <div className="space-y-2">
-          <FieldLabel>Reference number</FieldLabel>
-          <TextInput value={referenceNo} onChange={(event) => setReferenceNo(event.target.value)} required />
-        </div>
-        <div className="space-y-2">
-          <FieldLabel>Receipt image</FieldLabel>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(event) => void handleFileChange(event)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-bold file:text-sky-700 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-            required
-          />
-        </div>
-        <PrimaryButton type="submit" disabled={saving || loading}>
-          {saving ? "Uploading..." : "Upload"}
-        </PrimaryButton>
-      </div>
-      {receiptFileName ? <p className="mt-3 text-xs font-semibold text-amber-800">Selected: {receiptFileName}</p> : null}
-    </form>
-  );
-}
-
-function CustomerDashboard({
-  currentUser,
-  orders,
-  payments,
-  pricePerKilo,
-  apiError,
-  lastSync,
-  loading,
-  onLogout,
-  onRefresh,
-  onCreateOrder,
-  onSubmitPayment,
-}: {
-  currentUser: AppUser;
-  orders: Order[];
-  payments: Payment[];
-  pricePerKilo: number;
-  apiError: string;
-  lastSync: string | null;
-  loading: boolean;
-  onLogout: () => void;
-  onRefresh: () => void;
-  onCreateOrder: (form: LaundryForm) => Promise<string | null>;
-  onSubmitPayment: (form: PaymentForm) => Promise<string | null>;
-}) {
-  const [activeTab, setActiveTab] = useState<"book" | "orders" | "rates">("book");
-  const [laundryForm, setLaundryForm] = useState<LaundryForm>({ kilograms: "", paymentMethod: "Cash" });
-  const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  const customerOrders = orders.filter((order) => order.customerId === currentUser.id);
-  const customerPayments = payments.filter((payment) => payment.customerId === currentUser.id);
-  const kilograms = Number(laundryForm.kilograms);
-  const total = Number.isFinite(kilograms) && kilograms > 0 ? roundMoney(kilograms * pricePerKilo) : 0;
-
-  function latestPaymentFor(orderId: string) {
-    return customerPayments.find((payment) => payment.orderId === orderId) || null;
-  }
-
-  async function submitOrder(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
     setSubmitting(true);
     const result = await onCreateOrder(laundryForm);
     setSubmitting(false);
-    setMessage(result ?? "Laundry order saved to Aiven. Upload a GCash receipt if you selected GCash.");
+    setMessage(result ?? (laundryForm.paymentMethod === "GCash" ? "GCash payment submitted for admin confirmation." : "Laundry order submitted."));
     if (!result) {
-      setLaundryForm({ kilograms: "", paymentMethod: "Cash" });
+      setLaundryForm({ kilograms: "", paymentMethod: "Cash", referenceNo: "", receiptData: "", receiptFileName: "" });
     }
   }
 
@@ -1596,7 +1506,7 @@ function CustomerDashboard({
             <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-600">Customer Portal</p>
             <h2 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Book and track laundry</h2>
             <p className="mt-3 max-w-3xl text-slate-600">
-              Price, orders, and status are loaded from the Aiven-backed API. Refresh to re-query the database.
+              Check the current price, submit laundry orders, upload GCash receipts, and track order status.
             </p>
           </div>
           <p className="text-sm font-semibold text-slate-600">Current price: {formatPeso(pricePerKilo)} per kg</p>
@@ -1634,7 +1544,7 @@ function CustomerDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
             <form onSubmit={submitOrder} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Create laundry order</h3>
-              <p className="mt-1 text-sm text-slate-500">The peso total is calculated from the pricing table.</p>
+              <p className="mt-1 text-sm text-slate-500">The peso total is calculated automatically from the current rate.</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Kilograms</FieldLabel>
@@ -1652,16 +1562,56 @@ function CustomerDashboard({
                   <SelectInput
                     value={laundryForm.paymentMethod}
                     onChange={(event) =>
-                      setLaundryForm({ ...laundryForm, paymentMethod: event.target.value as LaundryForm["paymentMethod"] })
+                      setLaundryForm({
+                        ...laundryForm,
+                        paymentMethod: event.target.value as LaundryForm["paymentMethod"],
+                        referenceNo: "",
+                        receiptData: "",
+                        receiptFileName: "",
+                      })
                     }
                   >
                     <option value="Cash">Cash</option>
                     <option value="GCash">GCash</option>
-                    <option value="Card">Card</option>
                   </SelectInput>
                 </div>
+                {laundryForm.paymentMethod === "GCash" ? (
+                  <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                    <h4 className="font-black text-amber-950">GCash payment details</h4>
+                    <p className="mt-1 text-sm text-amber-800">
+                      A reference number and receipt image are required before submitting a GCash payment.
+                    </p>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <FieldLabel>GCash reference number</FieldLabel>
+                        <TextInput
+                          value={laundryForm.referenceNo}
+                          onChange={(event) => setLaundryForm({ ...laundryForm, referenceNo: event.target.value })}
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <FieldLabel>Receipt image</FieldLabel>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => void handleReceiptFileChange(event)}
+                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none file:mr-4 file:rounded-full file:border-0 file:bg-sky-50 file:px-4 file:py-2 file:text-sm file:font-bold file:text-sky-700 focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
+                          required
+                        />
+                      </div>
+                    </div>
+                    {laundryForm.receiptFileName ? (
+                      <p className="mt-3 text-xs font-semibold text-amber-800">Selected: {laundryForm.receiptFileName}</p>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="rounded-3xl bg-slate-50 p-4 text-sm font-semibold text-slate-600">
+                    Cash orders are payable when you claim your laundry.
+                  </p>
+                )}
                 <PrimaryButton type="submit" disabled={submitting || loading} className="w-full">
-                  {submitting ? "Saving order..." : "Submit order to Aiven"}
+                  {submitting ? "Submitting..." : laundryForm.paymentMethod === "GCash" ? "Submit payment" : "Submit order"}
                 </PrimaryButton>
               </div>
             </form>
@@ -1677,7 +1627,7 @@ function CustomerDashboard({
                   </p>
                   <div className="mt-8 space-y-4 border-t border-white/10 pt-6">
                     <div className="flex items-center justify-between gap-4 text-sm">
-                      <span className="text-slate-300">Price per kilo from DB</span>
+                      <span className="text-slate-300">Price per kilo</span>
                       <span className="font-black">{formatPeso(pricePerKilo)}</span>
                     </div>
                     <div className="flex items-center justify-between gap-4 text-sm">
@@ -1720,13 +1670,21 @@ function CustomerDashboard({
                   <div className="mt-6">
                     <ProgressLine order={order} />
                   </div>
-                  <GCashReceiptUpload
-                    order={order}
-                    payment={latestPaymentFor(order.id)}
-                    loading={loading}
-                    onSubmitPayment={onSubmitPayment}
-                    setMessage={setMessage}
-                  />
+                  {order.paymentMethod === "GCash" && latestPaymentFor(order.id) ? (
+                    <div className="mt-6 rounded-3xl bg-slate-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-slate-900">
+                            GCash reference: {latestPaymentFor(order.id)?.referenceNo}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Uploaded {formatDate(latestPaymentFor(order.id)?.paidAt || order.createdAt)}
+                          </p>
+                        </div>
+                        <PaymentStatusPill status={latestPaymentFor(order.id)?.status || "Pending"} />
+                      </div>
+                    </div>
+                  ) : null}
                 </article>
               ))
             ) : (
@@ -1738,7 +1696,7 @@ function CustomerDashboard({
         {activeTab === "rates" ? (
           <section className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
             <h3 className="text-xl font-black">Customer price list</h3>
-            <p className="mt-1 text-sm text-slate-500">This rate comes from pricing.pricePerKilo in Aiven.</p>
+            <p className="mt-1 text-sm text-slate-500">Use this list to estimate your laundry total by kilo.</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {[1, 3, 5, 10].map((kilo) => (
                 <div key={kilo} className="rounded-3xl bg-slate-50 p-5">
@@ -1761,9 +1719,9 @@ function LoadingScreen() {
         <div className="mx-auto mb-5 flex justify-center">
           <LogoMark />
         </div>
-        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting to Aiven</p>
-        <h1 className="mt-3 text-4xl font-black tracking-tight">Loading Washmate records</h1>
-        <p className="mt-3 text-slate-300">Requesting /api/bootstrap from the Express server.</p>
+        <p className="text-sm font-black uppercase tracking-[0.32em] text-sky-300">Connecting</p>
+        <h1 className="mt-3 text-4xl font-black tracking-tight">Loading Washmate</h1>
+        <p className="mt-3 text-slate-300">Preparing your dashboard.</p>
       </div>
     </main>
   );
@@ -2016,8 +1974,12 @@ export default function App() {
       return "Enter a valid laundry weight in kilos.";
     }
 
-    const { error } = await mutate(() =>
-      apiRequest<OrderResponse>("/api/orders", {
+    if (form.paymentMethod === "GCash" && (!form.referenceNo.trim() || !form.receiptData)) {
+      return "GCash payment requires a reference number and receipt image.";
+    }
+
+    const { error } = await mutate(async () => {
+      const orderResponse = await apiRequest<OrderResponse>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
           customerId: currentUser.id,
@@ -2029,40 +1991,27 @@ export default function App() {
           paymentStatus:
             form.paymentMethod === "Cash"
               ? "Pay on pickup"
-              : form.paymentMethod === "GCash"
-                ? "Pending confirmation"
-                : "Paid",
+              : "Pending confirmation",
         }),
-      }),
-    );
+      });
 
-    return error;
-  }
+      if (form.paymentMethod === "GCash") {
+        await apiRequest<PaymentResponse>("/api/payments", {
+          method: "POST",
+          body: JSON.stringify({
+            orderId: orderResponse.order.id,
+            customerId: currentUser.id,
+            amount: orderResponse.order.total,
+            method: "GCash",
+            referenceNo: form.referenceNo.trim(),
+            receiptData: form.receiptData,
+            receiptFileName: form.receiptFileName,
+          }),
+        });
+      }
 
-  async function handleSubmitPayment(form: PaymentForm) {
-    if (!currentUser) {
-      return "Please login again.";
-    }
-
-    const order = orders.find((item) => item.id === form.orderId);
-    if (!order) {
-      return "Order not found. Refresh records and try again.";
-    }
-
-    const { error } = await mutate(() =>
-      apiRequest<PaymentResponse>("/api/payments", {
-        method: "POST",
-        body: JSON.stringify({
-          orderId: order.id,
-          customerId: currentUser.id,
-          amount: order.total,
-          method: "GCash",
-          referenceNo: form.referenceNo,
-          receiptData: form.receiptData,
-          receiptFileName: form.receiptFileName,
-        }),
-      }),
-    );
+      return orderResponse;
+    });
 
     return error;
   }
@@ -2131,7 +2080,6 @@ export default function App() {
       onLogout={handleLogout}
       onRefresh={() => void refreshData()}
       onCreateOrder={handleCreateOrder}
-      onSubmitPayment={handleSubmitPayment}
     />
   );
 }
