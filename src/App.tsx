@@ -391,7 +391,7 @@ function ApiAlert({ error, onRefresh }: { error: string; onRefresh?: () => void 
 
   return (
     <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection or database error</p>
+      <p className="text-sm font-black uppercase tracking-[0.24em]">Connection error</p>
       <p className="mt-2 break-words text-sm font-semibold">{error}</p>
       {onRefresh ? (
         <button type="button" onClick={onRefresh} className="mt-4 text-sm font-black text-rose-900 underline">
@@ -425,7 +425,7 @@ function ConnectionPanel({
             Last sync: <span className="font-bold text-slate-900">{lastSync ? new Date(lastSync).toLocaleString() : "not yet synced"}</span>
           </p>
           <p className={`mt-2 text-sm font-bold ${error ? "text-rose-600" : "text-emerald-600"}`}>
-            {error ? "Live database sync needs attention" : "Showing live records from the API"}
+            {error ? "Live sync needs attention" : "Showing live records"}
           </p>
         </div>
         <SecondaryButton type="button" onClick={onRefresh} disabled={loading}>
@@ -985,7 +985,7 @@ function AdminDashboard({
           <section className="grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
             <form onSubmit={submitPrice} className="rounded-[2rem] border border-slate-200 bg-white p-5 sm:p-6">
               <h3 className="text-xl font-black">Set peso price per kilo</h3>
-              <p className="mt-1 text-sm text-slate-500">This updates pricing.id = 1 .</p>
+              <p className="mt-1 text-sm text-slate-500">This is the update Price .</p>
               <div className="mt-5 space-y-4">
                 <div className="space-y-2">
                   <FieldLabel>Price per kilo in PHP</FieldLabel>
@@ -1005,7 +1005,7 @@ function AdminDashboard({
             </form>
 
             <div className="rounded-[2rem] border border-slate-200 bg-slate-950 p-6 text-white">
-              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current database rate</p>
+              <p className="text-sm font-bold uppercase tracking-[0.3em] text-sky-300">Current rate</p>
               <p className="mt-4 text-5xl font-black tracking-tight">{formatPeso(pricePerKilo)}</p>
               <p className="mt-3 text-slate-300">per kilo for new laundry orders</p>
               <div className="mt-8 grid gap-3 text-sm text-slate-300 sm:grid-cols-3">
