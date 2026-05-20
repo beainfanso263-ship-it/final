@@ -1216,6 +1216,7 @@ function AdminPayments({
   setMessage: (value: string) => void;
 }) {
   const [workingPayment, setWorkingPayment] = useState("");
+  const [viewingReceipt, setViewingReceipt] = useState<Payment | null>(null);
 
   async function confirmPayment(payment: Payment) {
     setWorkingPayment(payment.id);
@@ -1263,6 +1264,36 @@ function AdminPayments({
         <h3 className="text-xl font-black">Customer GCash payments</h3>
         <p className="text-sm text-slate-500">Review uploaded receipts, reference numbers, and confirm verified payments.</p>
       </div>
+      {viewingReceipt ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setViewingReceipt(null)}>
+          <div className="max-h-[90vh] max-w-4xl overflow-auto rounded-3xl bg-white p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-xl font-black">Receipt for {viewingReceipt.referenceNo}</h3>
+              <button
+                type="button"
+                onClick={() => setViewingReceipt(null)}
+                className="rounded-full bg-slate-100 px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200"
+              >
+                Close
+              </button>
+            </div>
+            {viewingReceipt.receiptData ? (
+              <img
+                src={viewingReceipt.receiptData}
+                alt="GCash receipt"
+                className="max-h-[70vh] w-full rounded-2xl border border-slate-200"
+                onError={(e) => {
+                  e.currentTarget.src = "";
+                  e.currentTarget.alt = "Unable to display receipt. The image data may be corrupted or too large.";
+                  e.currentTarget.className = "w-full rounded-2xl border border-rose-200 bg-rose-50 p-8 text-center text-rose-700";
+                }}
+              />
+            ) : (
+              <p className="rounded-2xl bg-slate-50 p-8 text-center text-slate-500">No receipt image available.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
       <div className="divide-y divide-slate-100">
         {gcashOrdersWithoutPayment.length ? (
           <div className="bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900">
@@ -1274,11 +1305,10 @@ function AdminPayments({
           const order = findOrder(payment);
           return (
             <article key={payment.id} className="grid gap-5 px-5 py-5 lg:grid-cols-[130px_1fr_auto] lg:items-start">
-              <a
-                href={payment.receiptData}
-                target="_blank"
-                rel="noreferrer"
-                className="block overflow-hidden rounded-3xl border border-slate-200 bg-slate-50"
+              <button
+                type="button"
+                onClick={() => setViewingReceipt(payment)}
+                className="block overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 text-left transition hover:border-sky-300"
               >
                 {payment.receiptData ? (
                   <img src={payment.receiptData} alt="Uploaded GCash receipt" className="h-36 w-full object-cover lg:h-28" />
@@ -1287,7 +1317,7 @@ function AdminPayments({
                     No receipt preview
                   </div>
                 )}
-              </a>
+              </button>
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <h4 className="text-lg font-black text-slate-900">{payment.referenceNo}</h4>
@@ -1314,14 +1344,13 @@ function AdminPayments({
                 ) : null}
               </div>
               <div className="flex flex-col gap-2 lg:items-end">
-                <a
-                  href={payment.receiptData}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
+                  onClick={() => setViewingReceipt(payment)}
                   className="rounded-2xl border border-slate-200 px-4 py-2.5 text-center text-sm font-bold text-slate-700 transition hover:border-sky-300 hover:text-sky-700"
                 >
-                  Open receipt
-                </a>
+                  View receipt
+                </button>
                 {payment.status === "Pending" ? (
                   <PrimaryButton
                     type="button"
@@ -1434,11 +1463,37 @@ function ProgressLine({ order }: { order: Order }) {
   );
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
+function compressImage(file: File, maxWidth: number, quality: number): Promise<string> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("Unable to read receipt file"));
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Unable to process image"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve(dataUrl);
+      };
+      img.onerror = () => reject(new Error("Unable to load image"));
+      img.src = String(event.target?.result);
+    };
+    reader.onerror = () => reject(new Error("Unable to read file"));
     reader.readAsDataURL(file);
   });
 }
@@ -1499,17 +1554,19 @@ function CustomerDashboard({
       return;
     }
 
-    if (file.size > 4 * 1024 * 1024) {
-      setMessage("Receipt image is too large. Please upload an image below 4 MB.");
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage("Receipt image is too large. Please upload an image below 2 MB.");
       event.target.value = "";
       return;
     }
 
     try {
-      const receiptData = await fileToDataUrl(file);
-      setLaundryForm({ ...laundryForm, receiptData, receiptFileName: file.name });
+      // Compress image before converting to Base64
+      const compressedDataUrl = await compressImage(file, 800, 0.7);
+      setLaundryForm({ ...laundryForm, receiptData: compressedDataUrl, receiptFileName: file.name });
+      setMessage(`Receipt selected: ${file.name} (${(file.size / 1024).toFixed(0)} KB)`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Unable to read receipt file.");
+      setMessage(error instanceof Error ? error.message : "Unable to process receipt image.");
     }
   }
 
