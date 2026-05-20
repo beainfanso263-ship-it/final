@@ -194,6 +194,44 @@ app.get(
 );
 
 app.get(
+  "/api/debug/payments",
+  asyncRoute(async (_req, res) => {
+    const [[paymentCounts]] = await pool.query(
+      `SELECT
+        COUNT(*) AS totalPayments,
+        SUM(status = 'Pending') AS pendingPayments,
+        SUM(status = 'Paid') AS confirmedPayments
+       FROM payments`,
+    );
+    const [recentPayments] = await pool.query(
+      `SELECT id, orderId, customerId, amount, method, status, referenceNo, paidAt, confirmedAt
+       FROM payments
+       ORDER BY paidAt DESC
+       LIMIT 10`,
+    );
+    const [gcashOrdersWithoutPayment] = await pool.query(
+      `SELECT orders.id, orders.customerName, orders.total, orders.paymentStatus, orders.createdAt
+       FROM orders
+       LEFT JOIN payments ON payments.orderId = orders.id
+       WHERE orders.paymentMethod = 'GCash' AND payments.id IS NULL
+       ORDER BY orders.createdAt DESC
+       LIMIT 20`,
+    );
+
+    res.json({
+      success: true,
+      counts: {
+        totalPayments: Number(paymentCounts.totalPayments || 0),
+        pendingPayments: Number(paymentCounts.pendingPayments || 0),
+        confirmedPayments: Number(paymentCounts.confirmedPayments || 0),
+      },
+      recentPayments,
+      gcashOrdersWithoutPayment,
+    });
+  }),
+);
+
+app.get(
   "/api/bootstrap",
   asyncRoute(async (_req, res) => {
     const [accounts] = await pool.query(
@@ -318,32 +356,65 @@ app.post(
     const kilograms = Number(req.body.kilograms);
     const ratePerKilo = Number(req.body.ratePerKilo || (await getCurrentPricePerKilo()));
     const total = Number(req.body.total || Math.round(kilograms * ratePerKilo * 100) / 100);
-    const paymentMethod = req.body.paymentMethod || "Cash";
+    const paymentMethod = req.body.paymentMethod === "GCash" ? "GCash" : "Cash";
     const paymentStatus =
       req.body.paymentStatus || (paymentMethod === "Cash" ? "Pay on pickup" : paymentMethod === "GCash" ? "Pending confirmation" : "Paid");
+    const referenceNo = (req.body.referenceNo || "").trim();
+    const receiptData = req.body.receiptData || "";
+    const receiptFileName = req.body.receiptFileName || "gcash-receipt";
 
     if (!customerId || !Number.isFinite(kilograms) || kilograms <= 0) {
       res.status(400).json({ success: false, message: "Customer and valid kilograms are required" });
       return;
     }
 
+    if (paymentMethod === "GCash" && (!referenceNo || !receiptData)) {
+      res.status(400).json({ success: false, message: "GCash reference number and receipt image are required" });
+      return;
+    }
+
     const [[customer]] = await pool.query("SELECT name FROM accounts WHERE id = ? LIMIT 1", [customerId]);
     const customerName = req.body.customerName || customer?.name || "Walk-in customer";
+    const connection = await pool.getConnection();
 
-    await pool.query(
-      `INSERT INTO orders
-        (id, customerId, customerName, kilograms, ratePerKilo, total, paymentMethod, paymentStatus, stage, status, machine, createdAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Received', 'Pending', 'Not assigned', NOW())`,
-      [id, customerId, customerName, kilograms, ratePerKilo, total, paymentMethod, paymentStatus],
-    );
+    try {
+      await connection.beginTransaction();
 
-    await pool.query(
-      "INSERT INTO order_status_history (id, orderId, stage, status, note, createdAt) VALUES (?, ?, 'Received', 'Pending', 'Order submitted', NOW())",
-      [makeId("hist"), id],
-    );
+      await connection.query(
+        `INSERT INTO orders
+          (id, customerId, customerName, kilograms, ratePerKilo, total, paymentMethod, paymentStatus, stage, status, machine, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Received', 'Pending', 'Not assigned', NOW())`,
+        [id, customerId, customerName, kilograms, ratePerKilo, total, paymentMethod, paymentStatus],
+      );
 
-    const [rows] = await pool.query("SELECT * FROM orders WHERE id = ? LIMIT 1", [id]);
-    res.status(201).json({ success: true, order: normalizeOrder(rows[0]) });
+      await connection.query(
+        "INSERT INTO order_status_history (id, orderId, stage, status, note, createdAt) VALUES (?, ?, 'Received', 'Pending', 'Order submitted', NOW())",
+        [makeId("hist"), id],
+      );
+
+      let payment = null;
+      if (paymentMethod === "GCash") {
+        const paymentId = makeId("pay");
+        await connection.query(
+          `INSERT INTO payments
+            (id, orderId, customerId, amount, method, status, referenceNo, receiptData, receiptFileName, paidAt)
+           VALUES (?, ?, ?, ?, 'GCash', 'Pending', ?, ?, ?, NOW())`,
+          [paymentId, id, customerId, total, referenceNo, receiptData, receiptFileName],
+        );
+
+        const [[paymentRow]] = await connection.query("SELECT * FROM payments WHERE id = ? LIMIT 1", [paymentId]);
+        payment = normalizePayment(paymentRow);
+      }
+
+      const [[order]] = await connection.query("SELECT * FROM orders WHERE id = ? LIMIT 1", [id]);
+      await connection.commit();
+      res.status(201).json({ success: true, order: normalizeOrder(order), payment });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }),
 );
 
