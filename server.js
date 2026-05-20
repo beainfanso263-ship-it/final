@@ -200,11 +200,14 @@ app.get(
       `SELECT
         COUNT(*) AS totalPayments,
         SUM(status = 'Pending') AS pendingPayments,
-        SUM(status = 'Paid') AS confirmedPayments
+        SUM(status = 'Paid') AS confirmedPayments,
+        AVG(LENGTH(receiptData)) AS avgReceiptSize,
+        MAX(LENGTH(receiptData)) AS maxReceiptSize
        FROM payments`,
     );
     const [recentPayments] = await pool.query(
-      `SELECT id, orderId, customerId, amount, method, status, referenceNo, paidAt, confirmedAt
+      `SELECT id, orderId, customerId, amount, method, status, referenceNo, paidAt, confirmedAt, 
+              LENGTH(receiptData) AS receiptDataLength, receiptFileName
        FROM payments
        ORDER BY paidAt DESC
        LIMIT 10`,
@@ -224,6 +227,8 @@ app.get(
         totalPayments: Number(paymentCounts.totalPayments || 0),
         pendingPayments: Number(paymentCounts.pendingPayments || 0),
         confirmedPayments: Number(paymentCounts.confirmedPayments || 0),
+        avgReceiptSizeKB: Math.round(Number(paymentCounts.avgReceiptSize || 0) / 1024),
+        maxReceiptSizeKB: Math.round(Number(paymentCounts.maxReceiptSize || 0) / 1024),
       },
       recentPayments,
       gcashOrdersWithoutPayment,
