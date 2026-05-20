@@ -1228,8 +1228,33 @@ function AdminPayments({
     return orders.find((order) => order.id === payment.orderId);
   }
 
+  const paymentOrderIds = new Set(payments.map((payment) => payment.orderId));
+  const gcashOrdersWithoutPayment = orders.filter(
+    (order) => order.paymentMethod === "GCash" && !paymentOrderIds.has(order.id),
+  );
+
   if (!payments.length) {
-    return <EmptyState title="No payment rows" text="GCash receipt uploads from customers will appear here." />;
+    return (
+      <section className="space-y-4">
+        <EmptyState title="No payments yet" text="GCash payments submitted by customers will appear here." />
+        {gcashOrdersWithoutPayment.length ? (
+          <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 text-amber-900">
+            <h3 className="text-lg font-black">GCash orders found without payment receipt</h3>
+            <p className="mt-2 text-sm font-semibold">
+              These orders were created as GCash, but no payment receipt row was found. Ask the customer to submit again or
+              check the payment table migration.
+            </p>
+            <div className="mt-4 grid gap-2">
+              {gcashOrdersWithoutPayment.map((order) => (
+                <p key={order.id} className="rounded-2xl bg-white/70 px-4 py-3 text-sm font-bold">
+                  {order.id} - {order.customerName} - {formatPeso(order.total)}
+                </p>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
   }
 
   return (
@@ -1239,6 +1264,12 @@ function AdminPayments({
         <p className="text-sm text-slate-500">Review uploaded receipts, reference numbers, and confirm verified payments.</p>
       </div>
       <div className="divide-y divide-slate-100">
+        {gcashOrdersWithoutPayment.length ? (
+          <div className="bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900">
+            {gcashOrdersWithoutPayment.length} GCash order(s) have no receipt row yet. Refresh records or check payment
+            migration if the customer already submitted.
+          </div>
+        ) : null}
         {payments.map((payment) => {
           const order = findOrder(payment);
           return (
@@ -1741,8 +1772,10 @@ export default function App() {
 
   const machineByName = useMemo(() => new Map(machines.map((machine) => [machine.name, machine])), [machines]);
 
-  async function refreshData() {
-    setLoading(true);
+  async function refreshData(silent = false) {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const data = await apiRequest<BootstrapData>("/api/bootstrap");
       const nextUsers = data.users || [];
@@ -1764,7 +1797,9 @@ export default function App() {
     } catch (error) {
       setApiError(getErrorMessage(error));
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
       setInitializing(false);
     }
   }
@@ -1772,6 +1807,18 @@ export default function App() {
   useEffect(() => {
     void refreshData();
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void refreshData(true);
+    }, 10000);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentUser?.id]);
 
   async function mutate<T>(action: () => Promise<T>) {
     setLoading(true);
@@ -1992,23 +2039,11 @@ export default function App() {
             form.paymentMethod === "Cash"
               ? "Pay on pickup"
               : "Pending confirmation",
+          referenceNo: form.referenceNo.trim(),
+          receiptData: form.receiptData,
+          receiptFileName: form.receiptFileName,
         }),
       });
-
-      if (form.paymentMethod === "GCash") {
-        await apiRequest<PaymentResponse>("/api/payments", {
-          method: "POST",
-          body: JSON.stringify({
-            orderId: orderResponse.order.id,
-            customerId: currentUser.id,
-            amount: orderResponse.order.total,
-            method: "GCash",
-            referenceNo: form.referenceNo.trim(),
-            receiptData: form.receiptData,
-            receiptFileName: form.receiptFileName,
-          }),
-        });
-      }
 
       return orderResponse;
     });
